@@ -5,17 +5,17 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import httpx
 from loguru import logger
-import sys
-sys.path.append('../shared')
-
-from shared.types import (
+from shared_types import (
     DeviceInfo, DeviceStatus, LLMModel, ChatMessage,
     InferenceRequest, InferenceResponse, DeviceHealthMetrics,
-    ModelDeploymentRequest, ModelDeploymentStatus, DeviceType
+    ModelDeploymentRequest, ModelDeploymentStatus, DeviceType,
+    ModelShardingConfig, ModelShard, ShardingStrategy,
+    DistributedInferenceRequest, ShardedInferenceResponse
 )
+from llama_sharding import LlamaShardingEngine
 
 app = FastAPI(title="Orchard LLM Distributor", version="1.0.0")
 
@@ -34,6 +34,9 @@ models: Dict[str, LLMModel] = {}
 chat_history: List[ChatMessage] = []
 active_connections: List[WebSocket] = []
 device_metrics: Dict[str, List[DeviceHealthMetrics]] = {}
+
+# Initialize Llama sharding engine
+llama_sharding_engine = LlamaShardingEngine()
 
 # Initialize with some sample LLM models
 def initialize_models():
@@ -61,6 +64,14 @@ def initialize_models():
             min_memory_gb=4.0,
             description="Microsoft's small but capable 3.8B model",
             supported_devices=[DeviceType.MAC, DeviceType.IPAD, DeviceType.IPHONE]
+        ),
+        LLMModel(
+            id="llama-3.2-1b",
+            name="Llama 3.2 1B",
+            size_gb=1.5,
+            min_memory_gb=2.0,
+            description="Meta's Llama 3.2 1B parameter model - perfect for distributed inference",
+            supported_devices=[DeviceType.MAC]
         ),
     ]
     for model in sample_models:
@@ -104,41 +115,26 @@ async def get_devices():
 @app.post("/api/devices/register")
 async def register_device(device: DeviceInfo):
     """Register a new device"""
-    device.last_heartbeat = datetime.now()
     devices[device.id] = device
-    await manager.broadcast({
-        "type": "device_update",
-        "device": device.dict()
-    })
     logger.info(f"Device registered: {device.name} ({device.id})")
     return {"status": "registered", "device_id": device.id}
 
 @app.post("/api/devices/{device_id}/heartbeat")
 async def device_heartbeat(device_id: str, metrics: DeviceHealthMetrics):
-    """Update device heartbeat and health metrics"""
-    if device_id not in devices:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    device = devices[device_id]
-    device.last_heartbeat = datetime.now()
-    device.available_memory_gb = metrics.memory_usage_gb
-    device.cpu_usage_percent = metrics.cpu_usage_percent
-    device.temperature_celsius = metrics.temperature_celsius
-    
-    # Store metrics history
-    if device_id not in device_metrics:
-        device_metrics[device_id] = []
-    device_metrics[device_id].append(metrics)
-    
-    # Keep only last 100 metrics per device
-    if len(device_metrics[device_id]) > 100:
-        device_metrics[device_id] = device_metrics[device_id][-100:]
-    
-    await manager.broadcast({
-        "type": "device_metrics",
-        "device_id": device_id,
-        "metrics": metrics.dict()
-    })
+    """Update device heartbeat and metrics"""
+    if device_id in devices:
+        devices[device_id].last_heartbeat = datetime.now()
+        devices[device_id].cpu_usage_percent = metrics.cpu_usage_percent
+        devices[device_id].available_memory_gb = metrics.memory_usage_gb
+        
+        # Store metrics history
+        if device_id not in device_metrics:
+            device_metrics[device_id] = []
+        device_metrics[device_id].append(metrics)
+        
+        # Keep only last 100 metrics
+        if len(device_metrics[device_id]) > 100:
+            device_metrics[device_id] = device_metrics[device_id][-100:]
     
     return {"status": "ok"}
 
@@ -209,6 +205,81 @@ async def deploy_model(deployment: ModelDeploymentRequest):
     
     return {"deployments": deployment_results}
 
+@app.post("/api/models/deploy-llama-sharded")
+async def deploy_llama_sharded_model(deployment: dict):
+    """Deploy Llama 3.2 with sharding across multiple devices"""
+    model_id = deployment.get("model_id")
+    device_ids = deployment.get("device_ids", [])
+    strategy = ShardingStrategy(deployment.get("strategy", "layer_split"))
+    
+    if model_id not in models:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    # Get device info
+    target_devices = [devices[did] for did in device_ids if did in devices]
+    if not target_devices:
+        raise HTTPException(status_code=404, detail="No valid devices found")
+    
+    try:
+        # Create Llama sharding configuration
+        config = await llama_sharding_engine.create_llama_sharding_config(
+            model_id, target_devices, strategy
+        )
+        
+        # Store device connections
+        for device in target_devices:
+            llama_sharding_engine.device_connections[device.id] = f"{device.ip_address}:{device.port}"
+        
+        # Deploy shards to devices
+        deployment_results = []
+        for shard in config.shards:
+            device = next(d for d in target_devices if d.id == shard.device_id)
+            
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for model loading
+                    response = await client.post(
+                        f"http://{device.ip_address}:{device.port}/llama/shard/deploy",
+                        json={"shard": shard.model_dump()}
+                    )
+                    
+                    if response.status_code == 200:
+                        deployment_results.append(ModelDeploymentStatus(
+                            model_id=model_id,
+                            device_id=device.id,
+                            status="ready",
+                            progress_percent=100
+                        ))
+                    else:
+                        deployment_results.append(ModelDeploymentStatus(
+                            model_id=model_id,
+                            device_id=device.id,
+                            status="failed",
+                            progress_percent=0,
+                            error_message="Llama shard deployment failed"
+                        ))
+                        
+            except Exception as e:
+                deployment_results.append(ModelDeploymentStatus(
+                    model_id=model_id,
+                    device_id=device.id,
+                    status="failed",
+                    progress_percent=0,
+                    error_message=str(e)
+                ))
+        
+        # Store sharding configuration
+        llama_sharding_engine.sharding_configs[model_id] = config
+        
+        return {
+            "status": "success",
+            "config": config.dict(),
+            "deployments": deployment_results
+        }
+        
+    except Exception as e:
+        logger.error(f"Llama sharded deployment error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Chat and Inference Endpoints
 @app.post("/api/chat", response_model=InferenceResponse)
 async def chat(request: InferenceRequest):
@@ -272,6 +343,39 @@ async def chat(request: InferenceRequest):
         logger.error(f"Chat inference error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/chat/llama-sharded", response_model=ShardedInferenceResponse)
+async def llama_sharded_chat(request: DistributedInferenceRequest):
+    """Send a chat message to the sharded Llama 3.2 model"""
+    
+    if request.model_id not in llama_sharding_engine.sharding_configs:
+        raise HTTPException(status_code=404, detail="No Llama sharding config found for model")
+    
+    config = llama_sharding_engine.sharding_configs[request.model_id]
+    
+    try:
+        start_time = datetime.now()
+        
+        # Execute sharded Llama inference
+        response = await llama_sharding_engine.execute_llama_sharded_inference(request, config)
+        
+        processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
+        
+        # Calculate shard contributions
+        shard_contributions = {}
+        for shard in config.shards:
+            shard_contributions[shard.device_id] = 100.0 / len(config.shards)
+        
+        return ShardedInferenceResponse(
+            response=response,
+            device_ids=config.devices_used,
+            processing_time_ms=processing_time,
+            shard_contributions=shard_contributions
+        )
+        
+    except Exception as e:
+        logger.error(f"Llama sharded chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/chat/history", response_model=List[ChatMessage])
 async def get_chat_history():
     """Get chat history"""
@@ -279,7 +383,7 @@ async def get_chat_history():
 
 @app.get("/api/devices/{device_id}/metrics", response_model=List[DeviceHealthMetrics])
 async def get_device_metrics(device_id: str):
-    """Get device health metrics history"""
+    """Get device metrics history"""
     if device_id not in device_metrics:
         return []
     return device_metrics[device_id]
@@ -291,36 +395,21 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            # Echo back for ping/pong
-            await websocket.send_text(f"pong: {data}")
+            # Handle incoming messages if needed
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-# Background task for device health monitoring
 async def monitor_device_health():
-    """Monitor device health and update status"""
+    """Monitor device health and mark offline devices"""
     while True:
         current_time = datetime.now()
-        for device_id, device in devices.items():
-            # Mark devices as offline if no heartbeat for 30 seconds
-            if current_time - device.last_heartbeat > timedelta(seconds=30):
-                if device.status != DeviceStatus.OFFLINE:
-                    device.status = DeviceStatus.OFFLINE
-                    await manager.broadcast({
-                        "type": "device_update",
-                        "device": device.dict()
-                    })
-                    logger.warning(f"Device {device.name} marked as offline")
-            elif device.status == DeviceStatus.OFFLINE:
-                device.status = DeviceStatus.ONLINE
-                await manager.broadcast({
-                    "type": "device_update", 
-                    "device": device.dict()
-                })
-                logger.info(f"Device {device.name} back online")
+        for device in devices.values():
+            if (current_time - device.last_heartbeat) > timedelta(minutes=2):
+                device.status = DeviceStatus.OFFLINE
+                logger.warning(f"Device {device.name} marked as offline")
         
-        await asyncio.sleep(10)  # Check every 10 seconds
+        await asyncio.sleep(30)  # Check every 30 seconds
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run(app, host="0.0.0.0", port=8000) 

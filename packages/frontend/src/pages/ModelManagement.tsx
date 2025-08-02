@@ -3,19 +3,23 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelApi, deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { Brain, Download, Play, CheckCircle, XCircle, Loader } from 'lucide-react';
-import { LLMModel, DeviceInfo } from '../types';
+import { LLMModel, DeviceInfo, ShardingStrategy } from '../types';
 
 function ModelCard({ 
   model, 
   devices, 
-  onDeploy 
+  onDeploy,
+  onDeploySharded 
 }: { 
   model: LLMModel; 
   devices: DeviceInfo[];
   onDeploy: (modelId: string, deviceIds: string[]) => void;
+  onDeploySharded: (modelId: string, deviceIds: string[], strategy: ShardingStrategy) => void;
 }) {
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [showDeployment, setShowDeployment] = useState(false);
+  const [showShardedDeployment, setShowShardedDeployment] = useState(false);
+  const [shardingStrategy, setShardingStrategy] = useState<ShardingStrategy>('layer_split');
 
   const compatibleDevices = devices.filter(device => 
     model.supported_devices.includes(device.type) && 
@@ -30,6 +34,14 @@ function ModelCard({
       onDeploy(model.id, selectedDevices);
       setSelectedDevices([]);
       setShowDeployment(false);
+    }
+  };
+
+  const handleShardedDeploy = () => {
+    if (selectedDevices.length > 1) {  // Need at least 2 devices for sharding
+      onDeploySharded(model.id, selectedDevices, shardingStrategy);
+      setSelectedDevices([]);
+      setShowShardedDeployment(false);
     }
   };
 
@@ -52,63 +64,45 @@ function ModelCard({
 
         <div className="mt-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600">Compatible Devices</span>
-            <span className="text-sm text-gray-900">
-              {compatibleDevices.length} available
-            </span>
-          </div>
-          
-          {devicesRunningModel.length > 0 && (
-            <div className="mt-2 flex items-center space-x-2">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm text-green-600">
-                Running on {devicesRunningModel.length} device(s)
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">
+                {compatibleDevices.length} compatible devices
               </span>
+              {devicesRunningModel.length > 0 && (
+                <span className="text-sm text-green-600">
+                  Running on {devicesRunningModel.length} device(s)
+                </span>
+              )}
             </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex space-x-2">
-          <button
-            onClick={() => setShowDeployment(!showDeployment)}
-            className="btn btn-primary flex items-center space-x-2"
-            disabled={compatibleDevices.length === 0}
-          >
-            <Play className="h-4 w-4" />
-            <span>Deploy</span>
-          </button>
-          
-          <div className="flex flex-wrap gap-1">
-            {model.supported_devices.map(deviceType => (
-              <span
-                key={deviceType}
-                className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800"
-              >
-                {deviceType.toUpperCase()}
-              </span>
-            ))}
+            <div className="flex space-x-2">
+              {compatibleDevices.length > 0 && (
+                <button
+                  onClick={() => setShowDeployment(!showDeployment)}
+                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  <Play className="w-3 h-3 mr-1" />
+                  Deploy
+                </button>
+              )}
+              {compatibleDevices.length > 1 && model.id === 'llama-3.2-1b' && (
+                <button
+                  onClick={() => setShowShardedDeployment(!showShardedDeployment)}
+                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700"
+                >
+                  <Brain className="w-3 h-3 mr-1" />
+                  Shard
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Deployment Panel */}
-      {showDeployment && (
-        <div className="border-t border-gray-200 p-6 bg-gray-50">
-          <h4 className="text-sm font-medium text-gray-900 mb-3">
-            Select devices to deploy to:
-          </h4>
-          
-          {compatibleDevices.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No compatible devices available. Ensure devices have sufficient memory and are online.
-            </p>
-          ) : (
+        {showDeployment && (
+          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+            <h4 className="font-medium text-blue-900 mb-2">Deploy Model</h4>
             <div className="space-y-2">
               {compatibleDevices.map(device => (
-                <label
-                  key={device.id}
-                  className="flex items-center space-x-3 p-2 rounded hover:bg-gray-100"
-                >
+                <label key={device.id} className="flex items-center">
                   <input
                     type="checkbox"
                     checked={selectedDevices.includes(device.id)}
@@ -119,40 +113,91 @@ function ModelCard({
                         setSelectedDevices(selectedDevices.filter(id => id !== device.id));
                       }
                     }}
-                    className="h-4 w-4 text-primary-600 border-gray-300 rounded"
+                    className="mr-2"
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-900">
-                        {device.name}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {device.available_memory_gb.toFixed(1)} GB available
-                      </span>
-                    </div>
-                  </div>
+                  <span className="text-sm text-blue-900">
+                    {device.name} ({device.available_memory_gb} GB available)
+                  </span>
                 </label>
               ))}
-              
-              <div className="mt-4 flex space-x-2">
-                <button
-                  onClick={handleDeploy}
-                  disabled={selectedDevices.length === 0}
-                  className="btn btn-primary"
-                >
-                  Deploy to {selectedDevices.length} device(s)
-                </button>
-                <button
-                  onClick={() => setShowDeployment(false)}
-                  className="btn btn-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
             </div>
-          )}
-        </div>
-      )}
+            <div className="flex space-x-2 mt-3">
+              <button
+                onClick={handleDeploy}
+                disabled={selectedDevices.length === 0}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+              >
+                Deploy
+              </button>
+              <button
+                onClick={() => setShowDeployment(false)}
+                className="px-3 py-1.5 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showShardedDeployment && (
+          <div className="mt-4 p-4 bg-purple-50 rounded-lg">
+            <h4 className="font-medium text-purple-900 mb-2">Sharded Deployment</h4>
+            
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-purple-900 mb-1">
+                Sharding Strategy
+              </label>
+              <select
+                value={shardingStrategy}
+                onChange={(e) => setShardingStrategy(e.target.value as ShardingStrategy)}
+                className="w-full px-3 py-2 border border-purple-300 rounded-md bg-white"
+              >
+                <option value="layer_split">Layer Split</option>
+                <option value="tensor_parallel">Tensor Parallel</option>
+                <option value="pipeline_parallel">Pipeline Parallel</option>
+              </select>
+            </div>
+            
+            <div className="space-y-2 mb-3">
+              {compatibleDevices.map(device => (
+                <label key={device.id} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedDevices.includes(device.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedDevices([...selectedDevices, device.id]);
+                      } else {
+                        setSelectedDevices(selectedDevices.filter(id => id !== device.id));
+                      }
+                    }}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-purple-900">
+                    {device.name} ({device.available_memory_gb} GB available)
+                  </span>
+                </label>
+              ))}
+            </div>
+            
+            <div className="flex space-x-2">
+              <button
+                onClick={handleShardedDeploy}
+                disabled={selectedDevices.length < 2}
+                className="px-3 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 text-sm"
+              >
+                Deploy Sharded
+              </button>
+              <button
+                onClick={() => setShowShardedDeployment(false)}
+                className="px-3 py-1.5 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -179,11 +224,26 @@ export function ModelManagement() {
     },
   });
 
+  const deployShardedMutation = useMutation({
+    mutationFn: modelApi.deployLlamaSharded,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+    },
+  });
+
   // Use WebSocket devices if available, otherwise fall back to query data
   const displayDevices = wsDevices.length > 0 ? wsDevices : devices;
 
   const handleDeploy = (modelId: string, deviceIds: string[]) => {
     deployMutation.mutate({ model_id: modelId, device_ids: deviceIds });
+  };
+
+  const handleDeploySharded = (modelId: string, deviceIds: string[], strategy: ShardingStrategy) => {
+    deployShardedMutation.mutate({ 
+      model_id: modelId, 
+      device_ids: deviceIds, 
+      strategy: strategy 
+    });
   };
 
   return (
@@ -196,34 +256,12 @@ export function ModelManagement() {
       </div>
 
       {/* Deployment Status */}
-      {deployMutation.isPending && (
+      {(deployMutation.isPending || deployShardedMutation.isPending) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center">
-            <Loader className="h-5 w-5 text-blue-600 animate-spin" />
-            <span className="ml-2 text-sm text-blue-800">
-              Deploying model to selected devices...
-            </span>
-          </div>
-        </div>
-      )}
-
-      {deployMutation.isError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <XCircle className="h-5 w-5 text-red-600" />
-            <span className="ml-2 text-sm text-red-800">
-              Deployment failed: {deployMutation.error?.message}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {deployMutation.isSuccess && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            <span className="ml-2 text-sm text-green-800">
-              Model deployment initiated successfully
+            <Loader className="w-5 h-5 text-blue-600 animate-spin mr-2" />
+            <span className="text-blue-800">
+              {deployMutation.isPending ? 'Deploying model...' : 'Deploying sharded model...'}
             </span>
           </div>
         </div>
@@ -246,6 +284,7 @@ export function ModelManagement() {
               model={model}
               devices={displayDevices}
               onDeploy={handleDeploy}
+              onDeploySharded={handleDeploySharded}
             />
           ))}
         </div>

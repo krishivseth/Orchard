@@ -7,14 +7,14 @@ export interface LLMModel {
   size_gb: number;
   min_memory_gb: number;
   description: string;
-  supported_devices: DeviceType[];
+  supported_devices: string[];
 }
 
 export interface DeviceInfo {
   id: string;
   name: string;
-  type: DeviceType;
-  status: DeviceStatus;
+  type: 'mac' | 'iphone' | 'ipad';
+  status: 'online' | 'offline' | 'busy' | 'error';
   ip_address: string;
   port: number;
   total_memory_gb: number;
@@ -67,4 +67,41 @@ export interface ModelDeploymentStatus {
   status: 'loading' | 'ready' | 'failed';
   progress_percent: number;
   error_message?: string;
+}
+
+export type ShardingStrategy = 'layer_split' | 'tensor_parallel' | 'pipeline_parallel';
+
+export interface ModelShard {
+  shard_id: string;
+  device_id: string;
+  layer_start: number;
+  layer_end: number;
+  model_path: string;
+  shard_type: string;
+  memory_usage_gb: number;
+  llama_config?: Record<string, any>;
+}
+
+export interface DistributedInferenceRequest {
+  message: string;
+  model_id: string;
+  max_tokens?: number;
+  temperature?: number;
+  sharding_strategy?: ShardingStrategy;
+}
+
+export interface ShardedInferenceResponse {
+  response: string;
+  device_ids: string[];
+  processing_time_ms: number;
+  shard_contributions: Record<string, number>;
+}
+
+export interface ModelShardingConfig {
+  model_id: string;
+  strategy: ShardingStrategy;
+  shards: ModelShard[];
+  total_layers: number;
+  devices_used: string[];
+  model_name: string;
 } 

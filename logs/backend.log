@@ -1,0 +1,177 @@
+/Users/krishivseth/Orchard/packages/backend/main.py:80: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [31855]
+INFO:     Waiting for application startup.
+2025-08-02 17:32:38.666 | INFO     | __main__:startup_event:85 - Orchard LLM Distributor started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:62347 - "GET /api/models HTTP/1.1" 200 OK
+2025-08-02 17:32:44.043 | INFO     | __main__:register_device:119 - Device registered: Test Mac 1 (test-device-1)
+INFO:     127.0.0.1:62349 - "POST /api/devices/register HTTP/1.1" 200 OK
+2025-08-02 17:32:44.044 | INFO     | __main__:register_device:119 - Device registered: Test Mac 2 (test-device-2)
+INFO:     127.0.0.1:62349 - "POST /api/devices/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62467 - "GET /api/models HTTP/1.1" 200 OK
+2025-08-02 17:33:10.876 | INFO     | __main__:register_device:119 - Device registered: Test Mac 1 (test-device-1)
+INFO:     127.0.0.1:62469 - "POST /api/devices/register HTTP/1.1" 200 OK
+2025-08-02 17:33:10.877 | INFO     | __main__:register_device:119 - Device registered: Test Mac 2 (test-device-2)
+INFO:     127.0.0.1:62469 - "POST /api/devices/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62547 - "GET /api/models HTTP/1.1" 200 OK
+2025-08-02 17:33:26.911 | INFO     | __main__:register_device:119 - Device registered: Test Mac 1 (test-device-1)
+INFO:     127.0.0.1:62549 - "POST /api/devices/register HTTP/1.1" 200 OK
+2025-08-02 17:33:26.912 | INFO     | __main__:register_device:119 - Device registered: Test Mac 2 (test-device-2)
+INFO:     127.0.0.1:62549 - "POST /api/devices/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62907 - "GET /api/models HTTP/1.1" 200 OK
+2025-08-02 17:34:43.076 | INFO     | __main__:register_device:119 - Device registered: Test Mac 1 (test-device-1)
+INFO:     127.0.0.1:62909 - "POST /api/devices/register HTTP/1.1" 200 OK
+2025-08-02 17:34:43.078 | INFO     | __main__:register_device:119 - Device registered: Test Mac 2 (test-device-2)
+INFO:     127.0.0.1:62909 - "POST /api/devices/register HTTP/1.1" 200 OK
+/Users/krishivseth/Orchard/packages/backend/main.py:275: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.10/migration/
+  "config": config.dict(),
+INFO:     127.0.0.1:62911 - "POST /api/models/deploy-llama-sharded HTTP/1.1" 200 OK
+2025-08-02 17:34:43.122 | ERROR    | llama_sharding:_process_llama_layer_shard:290 - Layer shard processing failed: 404
+2025-08-02 17:34:43.131 | ERROR    | llama_sharding:_process_llama_layer_shard:290 - Layer shard processing failed: 404
+INFO:     127.0.0.1:62917 - "POST /api/chat/llama-sharded HTTP/1.1" 200 OK
+2025-08-02 17:37:08.675 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:37:08.676 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:37:38.677 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:37:38.678 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:38:08.679 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:38:08.679 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:38:38.681 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:38:38.681 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:39:08.682 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:39:08.682 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:39:38.684 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:39:38.684 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:40:08.685 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:40:08.686 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:40:38.687 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:40:38.688 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:41:08.689 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:41:08.690 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:41:38.690 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:41:38.691 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:42:08.692 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:42:08.693 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:42:38.694 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:42:38.694 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:43:08.695 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:43:08.696 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:43:38.698 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:43:38.699 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:44:08.700 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:44:08.700 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:44:38.702 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:44:38.702 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:45:08.703 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:45:08.704 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:45:38.705 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:45:38.706 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:46:08.708 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:46:08.708 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:46:38.709 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:46:38.710 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:47:08.711 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:47:08.712 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:47:38.713 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:47:38.714 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:48:08.716 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:48:08.716 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:48:38.717 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:48:38.718 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:49:08.719 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:49:08.720 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:49:38.721 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:49:38.721 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:50:08.723 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:50:08.723 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:50:38.725 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:50:38.725 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:51:08.726 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:51:08.726 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:51:38.728 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:51:38.729 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:52:08.730 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:52:08.731 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:52:38.732 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:52:38.733 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:53:08.734 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:53:08.735 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:53:38.737 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:53:38.737 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:54:08.739 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:54:08.740 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:54:38.741 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:54:38.741 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:55:08.742 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:55:08.743 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:55:38.744 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:55:38.745 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:56:08.747 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:56:08.747 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:56:38.748 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:56:38.749 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:57:08.750 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:57:08.751 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:57:38.752 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:57:38.753 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:58:08.754 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:58:08.755 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:58:38.756 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:58:38.757 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:59:08.758 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:59:08.759 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 17:59:38.760 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 17:59:38.761 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:00:08.762 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:00:08.763 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:00:38.764 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:00:38.765 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:01:08.766 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:01:08.767 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:01:38.768 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:01:38.769 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:02:08.769 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:02:08.770 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:23:32.094 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:23:32.095 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:24:02.098 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:24:02.098 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:24:32.099 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:24:32.099 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:25:02.100 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:25:02.101 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:25:32.102 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:25:32.102 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:26:02.103 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:26:02.103 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:26:32.104 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:26:32.105 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:27:02.106 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:27:02.106 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:27:32.108 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:27:32.108 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:28:02.110 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:28:02.110 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:28:32.112 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:28:32.112 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:29:02.113 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:29:02.113 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+INFO:     127.0.0.1:55581 - "GET /api/models HTTP/1.1" 200 OK
+2025-08-02 18:29:16.874 | INFO     | __main__:register_device:119 - Device registered: Mac 1 (USB-C) (usbc-mac-1)
+INFO:     127.0.0.1:55583 - "POST /api/devices/register HTTP/1.1" 200 OK
+2025-08-02 18:29:16.875 | INFO     | __main__:register_device:119 - Device registered: Mac 2 (USB-C) (usbc-mac-2)
+INFO:     127.0.0.1:55583 - "POST /api/devices/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55585 - "POST /api/models/deploy-llama-sharded HTTP/1.1" 200 OK
+2025-08-02 18:29:20.508 | ERROR    | llama_sharding:_process_llama_layer_shard:290 - Layer shard processing failed: 404
+2025-08-02 18:29:21.518 | ERROR    | llama_sharding:_process_llama_layer_shard:293 - Error processing layer shard: All connection attempts failed
+INFO:     127.0.0.1:55606 - "POST /api/chat/llama-sharded HTTP/1.1" 200 OK
+2025-08-02 18:29:32.114 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:29:32.115 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline
+2025-08-02 18:30:02.116 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 1 marked as offline
+2025-08-02 18:30:02.116 | WARNING  | __main__:monitor_device_health:409 - Device Test Mac 2 marked as offline

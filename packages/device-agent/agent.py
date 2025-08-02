@@ -4,20 +4,17 @@ import platform
 import socket
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import psutil
 import httpx
 from fastapi import FastAPI, HTTPException
 import uvicorn
 from loguru import logger
-import sys
-import os
-sys.path.append('../shared')
-
-from shared.types import (
+from shared_types import (
     DeviceInfo, DeviceStatus, DeviceType, DeviceHealthMetrics,
-    InferenceRequest, InferenceResponse
+    InferenceRequest, InferenceResponse, ModelShard, ShardingStrategy
 )
+from llama_sharded_inference import LlamaShardedLoader
 
 class LLMInferenceEngine:
     """Mock LLM inference engine - replace with actual model loading"""
@@ -73,6 +70,7 @@ class DeviceAgent:
         self.port = port
         self.device_info = self._create_device_info()
         self.inference_engine = LLMInferenceEngine()
+        self.llama_loader = LlamaShardedLoader()
         self.app = FastAPI(title=f"Device Agent - {self.device_info.name}")
         self._setup_routes()
         
@@ -117,19 +115,13 @@ class DeviceAgent:
     
     def _get_temperature(self) -> Optional[float]:
         """Get device temperature (mock implementation)"""
-        try:
-            # On macOS, you could use powermetrics or thermal state
-            # For now, return a simulated temperature
-            import random
-            return round(random.uniform(45.0, 75.0), 1)
-        except:
-            return None
+        # In a real implementation, you'd read from system sensors
+        return 45.0  # Mock temperature
     
     def _setup_routes(self):
-        """Setup FastAPI routes"""
-        
         @self.app.get("/health")
         async def health():
+            """Health check endpoint"""
             return {"status": "healthy", "device_id": self.device_id}
         
         @self.app.post("/deploy")
@@ -172,19 +164,97 @@ class DeviceAgent:
         async def get_metrics():
             """Get current device metrics"""
             return self._get_current_metrics().dict()
+        
+        @self.app.post("/llama/shard/deploy")
+        async def deploy_llama_shard(request: dict):
+            """Deploy a Llama 3.2 shard to this device"""
+            try:
+                shard_data = request.get("shard")
+                if not shard_data:
+                    raise HTTPException(status_code=400, detail="shard data required")
+                
+                shard = ModelShard(**shard_data)
+                success = await self.llama_loader.load_llama_shard(shard)
+                
+                if success:
+                    return {"status": "success", "shard_id": shard.shard_id}
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to load Llama shard")
+                    
+            except Exception as e:
+                logger.error(f"Llama shard deployment error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/llama/layer-inference")
+        async def llama_layer_inference(request: dict):
+            """Run inference on a Llama layer shard"""
+            try:
+                input_data = request.get("input")
+                layer_start = request.get("layer_start")
+                layer_end = request.get("layer_end")
+                shard_id = request.get("shard_id")
+                
+                if not all([input_data, layer_start is not None, layer_end is not None]):
+                    raise HTTPException(status_code=400, detail="Missing required fields")
+                
+                result = await self.llama_loader.process_llama_layer_shard(
+                    input_data, layer_start, layer_end
+                )
+                
+                return {"output": result, "shard_id": shard_id}
+                
+            except Exception as e:
+                logger.error(f"Llama layer inference error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/llama/tensor-inference")
+        async def llama_tensor_inference(request: dict):
+            """Run inference on a Llama tensor shard"""
+            try:
+                input_data = request.get("input")
+                shard_id = request.get("shard_id")
+                
+                if not input_data:
+                    raise HTTPException(status_code=400, detail="Missing input data")
+                
+                result = await self.llama_loader.process_llama_tensor_shard(input_data)
+                
+                return {"output": result, "shard_id": shard_id}
+                
+            except Exception as e:
+                logger.error(f"Llama tensor inference error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/llama/pipeline-inference")
+        async def llama_pipeline_inference(request: dict):
+            """Run inference on a Llama pipeline stage"""
+            try:
+                input_data = request.get("input")
+                shard_id = request.get("shard_id")
+                
+                if not input_data:
+                    raise HTTPException(status_code=400, detail="Missing input data")
+                
+                result = await self.llama_loader.process_llama_pipeline_stage(
+                    input_data, shard_id
+                )
+                
+                return {"output": result, "shard_id": shard_id}
+                
+            except Exception as e:
+                logger.error(f"Llama pipeline inference error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
     
     def _get_current_metrics(self) -> DeviceHealthMetrics:
         """Get current device health metrics"""
         memory = psutil.virtual_memory()
-        cpu_usage = psutil.cpu_percent()
-        
         return DeviceHealthMetrics(
             device_id=self.device_id,
-            memory_usage_gb=round((memory.total - memory.available) / (1024**3), 1),
-            cpu_usage_percent=cpu_usage,
+            memory_usage_gb=memory.used / (1024**3),
+            cpu_usage_percent=psutil.cpu_percent(),
             temperature_celsius=self._get_temperature(),
-            inference_count=0,  # Could track this
-            average_response_time_ms=100,  # Could track this
+            inference_count=0,  # Would track this in a real implementation
+            average_response_time_ms=0,  # Would track this in a real implementation
             timestamp=datetime.now()
         )
     
@@ -197,43 +267,43 @@ class DeviceAgent:
                     json=self.device_info.dict()
                 )
                 if response.status_code == 200:
-                    logger.info(f"Device registered successfully: {self.device_id}")
-                    return True
+                    logger.info("Successfully registered with backend")
                 else:
-                    logger.error(f"Registration failed: {response.text}")
-                    return False
+                    logger.error(f"Failed to register with backend: {response.status_code}")
         except Exception as e:
-            logger.error(f"Registration error: {e}")
-            return False
+            logger.error(f"Error registering with backend: {e}")
     
     async def send_heartbeat(self):
-        """Send periodic heartbeat to backend"""
-        while True:
-            try:
-                metrics = self._get_current_metrics()
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        f"{self.backend_url}/api/devices/{self.device_id}/heartbeat",
-                        json=metrics.dict()
-                    )
-                    if response.status_code != 200:
-                        logger.warning(f"Heartbeat failed: {response.text}")
-            except Exception as e:
-                logger.error(f"Heartbeat error: {e}")
-            
-            await asyncio.sleep(10)  # Send heartbeat every 10 seconds
+        """Send heartbeat to backend"""
+        try:
+            metrics = self._get_current_metrics()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.backend_url}/api/devices/{self.device_id}/heartbeat",
+                    json=metrics.dict()
+                )
+                if response.status_code != 200:
+                    logger.warning(f"Heartbeat failed: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error sending heartbeat: {e}")
     
     async def start(self):
         """Start the device agent"""
         # Register with backend
         await self.register_with_backend()
         
-        # Start heartbeat task
-        asyncio.create_task(self.send_heartbeat())
+        # Start heartbeat loop
+        async def heartbeat_loop():
+            while True:
+                await self.send_heartbeat()
+                await asyncio.sleep(30)  # Send heartbeat every 30 seconds
         
-        # Start FastAPI server
+        # Start heartbeat in background
+        asyncio.create_task(heartbeat_loop())
+        
+        # Start the FastAPI server
         config = uvicorn.Config(
-            app=self.app,
+            self.app,
             host="0.0.0.0",
             port=self.port,
             log_level="info"
@@ -242,17 +312,14 @@ class DeviceAgent:
         await server.serve()
 
 async def main():
-    """Main entry point"""
     import argparse
-    
-    parser = argparse.ArgumentParser(description="Orchard Device Agent")
+    parser = argparse.ArgumentParser(description="Device Agent")
     parser.add_argument("--backend", default="http://localhost:8000", help="Backend URL")
-    parser.add_argument("--port", type=int, default=8001, help="Agent port")
+    parser.add_argument("--port", type=int, default=8001, help="Port to run on")
     
     args = parser.parse_args()
     
     agent = DeviceAgent(backend_url=args.backend, port=args.port)
-    logger.info(f"Starting device agent on port {args.port}")
     await agent.start()
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
 import asyncio
+import sys
+import os
 import torch
 import torch.nn as nn
 from typing import Dict, List, Optional, Any
 from loguru import logger
-from shared_types import ModelShard, ShardingStrategy
+
+from shared.types import ModelShard, ShardingStrategy
 from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaConfig
 
 class LlamaShardedLoader:

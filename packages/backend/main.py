@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import httpx
 from loguru import logger
-from shared_types import (
+from shared.types import (
     DeviceInfo, DeviceStatus, LLMModel, ChatMessage,
     InferenceRequest, InferenceResponse, DeviceHealthMetrics,
     ModelDeploymentRequest, ModelDeploymentStatus, DeviceType,

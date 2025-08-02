@@ -14,6 +14,11 @@ class DeviceStatus(str, Enum):
     BUSY = "busy"
     ERROR = "error"
 
+class ShardingStrategy(str, Enum):
+    LAYER_SPLIT = "layer_split"      # Split transformer layers across devices
+    TENSOR_PARALLEL = "tensor_parallel"  # Split attention/MLP tensors
+    PIPELINE_PARALLEL = "pipeline_parallel"  # Pipeline stages
+
 class LLMModel(BaseModel):
     id: str
     name: str
@@ -21,6 +26,37 @@ class LLMModel(BaseModel):
     min_memory_gb: float
     description: str
     supported_devices: List[DeviceType]
+
+class ModelShard(BaseModel):
+    shard_id: str
+    device_id: str
+    layer_start: int
+    layer_end: int
+    model_path: str
+    shard_type: str  # "layers", "tensors", "pipeline_stage"
+    memory_usage_gb: float
+    llama_config: Optional[Dict[str, Any]] = None
+
+class DistributedInferenceRequest(BaseModel):
+    message: str
+    model_id: str
+    max_tokens: int = 150
+    temperature: float = 0.7
+    sharding_strategy: ShardingStrategy = ShardingStrategy.LAYER_SPLIT
+
+class ShardedInferenceResponse(BaseModel):
+    response: str
+    device_ids: List[str]
+    processing_time_ms: int
+    shard_contributions: Dict[str, float]  # Device ID -> contribution percentage
+
+class ModelShardingConfig(BaseModel):
+    model_id: str
+    strategy: ShardingStrategy
+    shards: List[ModelShard]
+    total_layers: int
+    devices_used: List[str]
+    model_name: str = "meta-llama/Llama-3.2-1B"
 
 class DeviceInfo(BaseModel):
     id: str

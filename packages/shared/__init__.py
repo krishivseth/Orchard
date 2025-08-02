@@ -1,7 +1,12 @@
 from .types import (
     DeviceType,
     DeviceStatus,
+    ShardingStrategy,
     LLMModel,
+    ModelShard,
+    DistributedInferenceRequest,
+    ShardedInferenceResponse,
+    ModelShardingConfig,
     DeviceInfo,
     ChatMessage,
     InferenceRequest,
@@ -13,8 +18,13 @@ from .types import (
 
 __all__ = [
     "DeviceType",
-    "DeviceStatus", 
+    "DeviceStatus",
+    "ShardingStrategy",
     "LLMModel",
+    "ModelShard",
+    "DistributedInferenceRequest",
+    "ShardedInferenceResponse",
+    "ModelShardingConfig",
     "DeviceInfo",
     "ChatMessage",
     "InferenceRequest",

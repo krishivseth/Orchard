@@ -3,6 +3,8 @@ import json
 import platform
 import socket
 import uuid
+import sys
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import psutil
@@ -10,11 +12,13 @@ import httpx
 from fastapi import FastAPI, HTTPException
 import uvicorn
 from loguru import logger
+
 from shared_types import (
     DeviceInfo, DeviceStatus, DeviceType, DeviceHealthMetrics,
     InferenceRequest, InferenceResponse, ModelShard, ShardingStrategy
 )
 from llama_sharded_inference import LlamaShardedLoader
+from ollama_inference import OllamaInferenceEngine
 
 class LLMInferenceEngine:
     """Mock LLM inference engine - replace with actual model loading"""
@@ -71,6 +75,7 @@ class DeviceAgent:
         self.device_info = self._create_device_info()
         self.inference_engine = LLMInferenceEngine()
         self.llama_loader = LlamaShardedLoader()
+        self.ollama_engine = OllamaInferenceEngine()
         self.app = FastAPI(title=f"Device Agent - {self.device_info.name}")
         self._setup_routes()
         
@@ -174,7 +179,7 @@ class DeviceAgent:
                     raise HTTPException(status_code=400, detail="shard data required")
                 
                 shard = ModelShard(**shard_data)
-                success = await self.llama_loader.load_llama_shard(shard)
+                success = await self.ollama_engine.load_llama_shard(shard)
                 
                 if success:
                     return {"status": "success", "shard_id": shard.shard_id}
@@ -197,7 +202,7 @@ class DeviceAgent:
                 if not all([input_data, layer_start is not None, layer_end is not None]):
                     raise HTTPException(status_code=400, detail="Missing required fields")
                 
-                result = await self.llama_loader.process_llama_layer_shard(
+                result = await self.ollama_engine.process_llama_layer_shard(
                     input_data, layer_start, layer_end
                 )
                 
@@ -217,7 +222,7 @@ class DeviceAgent:
                 if not input_data:
                     raise HTTPException(status_code=400, detail="Missing input data")
                 
-                result = await self.llama_loader.process_llama_tensor_shard(input_data)
+                result = await self.ollama_engine.process_llama_tensor_shard(input_data)
                 
                 return {"output": result, "shard_id": shard_id}
                 
@@ -235,7 +240,7 @@ class DeviceAgent:
                 if not input_data:
                     raise HTTPException(status_code=400, detail="Missing input data")
                 
-                result = await self.llama_loader.process_llama_pipeline_stage(
+                result = await self.ollama_engine.process_llama_pipeline_stage(
                     input_data, shard_id
                 )
                 

@@ -13,12 +13,60 @@ from fastapi import FastAPI, HTTPException
 import uvicorn
 from loguru import logger
 
-from shared_types import (
+# Add parent directory to path for shared imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from shared.types import (
     DeviceInfo, DeviceStatus, DeviceType, DeviceHealthMetrics,
     InferenceRequest, InferenceResponse, ModelShard, ShardingStrategy
 )
 from llama_sharded_inference import LlamaShardedLoader
 from ollama_inference import OllamaInferenceEngine
+
+def get_network_ip() -> str:
+    """Get the primary network IP address, preferring Thunderbolt Bridge"""
+    try:
+        # Try to get all network interfaces
+        import subprocess
+        result = subprocess.run(['ifconfig'], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            for i, line in enumerate(lines):
+                # Look for Thunderbolt Bridge interface
+                if 'bridge100' in line or 'thunderbolt' in line.lower():
+                    # Find the inet line that follows
+                    for j in range(i+1, min(i+10, len(lines))):
+                        if 'inet ' in lines[j] and '127.0.0.1' not in lines[j]:
+                            ip = lines[j].split()[1]
+                            if ip.startswith('169.254.'):
+                                logger.info(f"Found Thunderbolt Bridge IP: {ip}")
+                                return ip
+                
+                # Also look for any 169.254.x.x IP (Thunderbolt Bridge range)
+                if 'inet ' in line and '169.254.' in line:
+                    ip = line.split()[1]
+                    if ip != '127.0.0.1':
+                        logger.info(f"Found network IP: {ip}")
+                        return ip
+        
+        # Fallback: try to connect to a remote address to determine local IP
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+                if ip != '127.0.0.1':
+                    logger.info(f"Found network IP via connection: {ip}")
+                    return ip
+        except:
+            pass
+            
+    except Exception as e:
+        logger.warning(f"Error detecting network IP: {e}")
+    
+    # Final fallback to localhost
+    logger.warning("Using localhost as fallback IP")
+    return "127.0.0.1"
 
 class LLMInferenceEngine:
     """Mock LLM inference engine - replace with actual model loading"""
@@ -95,9 +143,8 @@ class DeviceAgent:
         else:
             device_type = DeviceType.MAC  # Default fallback
         
-        # Get network info
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
+        # Get network info using improved IP detection
+        local_ip = get_network_ip()
         
         # Get memory info
         memory = psutil.virtual_memory()

@@ -115,6 +115,21 @@ async def get_devices():
 @app.post("/api/devices/register")
 async def register_device(device: DeviceInfo):
     """Register a new device"""
+    # Check for existing devices with the same name and remove offline ones
+    devices_to_remove = []
+    for device_id, existing_device in devices.items():
+        if existing_device.name == device.name and existing_device.status == DeviceStatus.OFFLINE:
+            devices_to_remove.append(device_id)
+            logger.info(f"Removing offline duplicate device: {existing_device.name} ({device_id})")
+    
+    # Remove offline duplicates
+    for device_id in devices_to_remove:
+        if device_id in devices:
+            del devices[device_id]
+        if device_id in device_metrics:
+            del device_metrics[device_id]
+    
+    # Register the new device
     devices[device.id] = device
     logger.info(f"Device registered: {device.name} ({device.id})")
     return {"status": "registered", "device_id": device.id}
@@ -138,6 +153,38 @@ async def device_heartbeat(device_id: str, metrics: DeviceHealthMetrics):
     
     return {"status": "ok"}
 
+@app.delete("/api/devices/{device_id}")
+async def remove_device(device_id: str):
+    """Manually remove a device"""
+    if device_id in devices:
+        device_name = devices[device_id].name
+        del devices[device_id]
+        if device_id in device_metrics:
+            del device_metrics[device_id]
+        logger.info(f"Manually removed device: {device_name} ({device_id})")
+        return {"status": "removed", "device_id": device_id}
+    else:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+@app.post("/api/devices/cleanup")
+async def cleanup_offline_devices():
+    """Manually cleanup all offline devices"""
+    current_time = datetime.now()
+    devices_to_remove = []
+    
+    for device_id, device in devices.items():
+        if device.status == DeviceStatus.OFFLINE:
+            devices_to_remove.append(device_id)
+    
+    for device_id in devices_to_remove:
+        device_name = devices[device_id].name
+        del devices[device_id]
+        if device_id in device_metrics:
+            del device_metrics[device_id]
+        logger.info(f"Cleaned up offline device: {device_name} ({device_id})")
+    
+    return {"status": "cleaned", "removed_count": len(devices_to_remove)}
+
 # LLM Model Endpoints
 @app.get("/api/models", response_model=List[LLMModel])
 async def get_models():
@@ -158,6 +205,12 @@ async def deploy_model(deployment: ModelDeploymentRequest):
         raise HTTPException(status_code=404, detail="Model not found")
     
     model = models[deployment.model_id]
+    
+    # Check if multiple devices are available and suggest sharding
+    available_devices = [device for device in devices.values() if device.status == DeviceStatus.ONLINE]
+    if len(available_devices) >= 2 and len(deployment.device_ids) == 1:
+        logger.info(f"Multiple devices available ({len(available_devices)}), consider using sharded deployment for better distribution")
+    
     deployment_results = []
     
     for device_id in deployment.device_ids:
@@ -212,6 +265,95 @@ async def deploy_model(deployment: ModelDeploymentRequest):
     
     return {"deployments": deployment_results}
 
+@app.post("/api/models/deploy-llama-sharded-auto")
+async def deploy_llama_sharded_model_auto(deployment: dict):
+    """Automatically deploy Llama 3.2 with sharding across ALL available devices"""
+    model_id = deployment.get("model_id")
+    strategy = ShardingStrategy(deployment.get("strategy", "layer_split"))
+    
+    if model_id not in models:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    # Get ALL available online devices
+    available_devices = [
+        device for device in devices.values() 
+        if device.status == DeviceStatus.ONLINE
+    ]
+    
+    if len(available_devices) < 2:
+        raise HTTPException(status_code=400, detail="Auto-sharded deployment requires at least 2 online devices")
+    
+    # Use all available devices for maximum distribution
+    target_devices = available_devices
+    device_ids = [device.id for device in target_devices]
+    
+    logger.info(f"Auto-sharding {model_id} across {len(target_devices)} devices: {[d.name for d in target_devices]}")
+    
+    try:
+        # Create Llama sharding configuration
+        config = await llama_sharding_engine.create_llama_sharding_config(
+            model_id, target_devices, strategy
+        )
+        
+        # Store device connections
+        for device in target_devices:
+            llama_sharding_engine.device_connections[device.id] = f"{device.ip_address}:{device.port}"
+        
+        # Deploy shards to devices
+        deployment_results = []
+        for shard in config.shards:
+            device = next(d for d in target_devices if d.id == shard.device_id)
+            
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for model loading
+                    response = await client.post(
+                        f"http://{device.ip_address}:{device.port}/llama/shard/deploy",
+                        json={"shard": shard.model_dump()}
+                    )
+                    
+                    if response.status_code == 200:
+                        # Mark device as running this sharded model
+                        device.current_model = model_id
+                        device.status = DeviceStatus.ONLINE
+                        deployment_results.append(ModelDeploymentStatus(
+                            model_id=model_id,
+                            device_id=device.id,
+                            status="ready",
+                            progress_percent=100
+                        ))
+                    else:
+                        deployment_results.append(ModelDeploymentStatus(
+                            model_id=model_id,
+                            device_id=device.id,
+                            status="failed",
+                            progress_percent=0,
+                            error_message="Llama shard deployment failed"
+                        ))
+                        
+            except Exception as e:
+                deployment_results.append(ModelDeploymentStatus(
+                    model_id=model_id,
+                    device_id=device.id,
+                    status="failed",
+                    progress_percent=0,
+                    error_message=str(e)
+                ))
+        
+        # Store sharding configuration
+        llama_sharding_engine.sharding_configs[model_id] = config
+        
+        return {
+            "status": "success",
+            "config": config.model_dump(mode='json'),
+            "deployments": deployment_results,
+            "auto_selected": True,
+            "devices_used": [d.name for d in target_devices]
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto Llama sharded deployment error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/models/deploy-llama-sharded")
 async def deploy_llama_sharded_model(deployment: dict):
     """Deploy Llama 3.2 with sharding across multiple devices"""
@@ -226,6 +368,10 @@ async def deploy_llama_sharded_model(deployment: dict):
     target_devices = [devices[did] for did in device_ids if did in devices]
     if not target_devices:
         raise HTTPException(status_code=404, detail="No valid devices found")
+    
+    # Enforce sharding across all available devices (minimum 2 for true distribution)
+    if len(target_devices) < 2:
+        raise HTTPException(status_code=400, detail="Sharded deployment requires at least 2 devices for true distributed inference")
     
     try:
         # Create Llama sharding configuration
@@ -433,13 +579,28 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 async def monitor_device_health():
-    """Monitor device health and mark offline devices"""
+    """Monitor device health and clean up offline devices"""
     while True:
         current_time = datetime.now()
-        for device in devices.values():
+        devices_to_remove = []
+        
+        for device_id, device in devices.items():
+            # Mark devices as offline if no heartbeat for 2 minutes
             if (current_time - device.last_heartbeat) > timedelta(minutes=2):
                 device.status = DeviceStatus.OFFLINE
                 logger.warning(f"Device {device.name} marked as offline")
+            
+            # Remove devices that have been offline for more than 5 minutes
+            if (current_time - device.last_heartbeat) > timedelta(minutes=5):
+                devices_to_remove.append(device_id)
+                logger.info(f"Removing offline device: {device.name} ({device_id})")
+        
+        # Remove offline devices
+        for device_id in devices_to_remove:
+            if device_id in devices:
+                del devices[device_id]
+            if device_id in device_metrics:
+                del device_metrics[device_id]
         
         await asyncio.sleep(30)  # Check every 30 seconds
 

@@ -168,7 +168,7 @@ class DeviceAgent:
         @self.app.get("/metrics")
         async def get_metrics():
             """Get current device metrics"""
-            return self._get_current_metrics().dict()
+            return self._get_current_metrics().model_dump(mode='json')
         
         @self.app.post("/llama/shard/deploy")
         async def deploy_llama_shard(request: dict):
@@ -269,7 +269,7 @@ class DeviceAgent:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.backend_url}/api/devices/register",
-                    json=self.device_info.dict()
+                    json=self.device_info.model_dump(mode='json')
                 )
                 if response.status_code == 200:
                     logger.info("Successfully registered with backend")
@@ -285,7 +285,7 @@ class DeviceAgent:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.backend_url}/api/devices/{self.device_id}/heartbeat",
-                    json=metrics.dict()
+                    json=metrics.model_dump(mode='json')
                 )
                 if response.status_code != 200:
                     logger.warning(f"Heartbeat failed: {response.status_code}")

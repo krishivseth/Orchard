@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, modelApi, deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { Send, Bot, User, Cpu, Clock } from 'lucide-react';
-import { ChatMessage, InferenceRequest } from '../types';
+import { ChatMessage, InferenceRequest, DistributedInferenceRequest, InferenceResponse, ShardedInferenceResponse } from '../types';
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
@@ -66,11 +66,35 @@ export function Chat() {
     refetchInterval: 2000,
   });
 
-  const sendMessageMutation = useMutation({
-    mutationFn: chatApi.sendMessage,
+  const { data: shardedConfigs = { configs: {} } } = useQuery({
+    queryKey: ['sharded-configs'],
+    queryFn: modelApi.getShardedConfigs,
+    refetchInterval: 5000,
+  });
+
+  const sendMessageMutation = useMutation<
+    InferenceResponse | ShardedInferenceResponse,
+    Error,
+    InferenceRequest | DistributedInferenceRequest
+  >({
+    mutationFn: (request: InferenceRequest | DistributedInferenceRequest) => {
+      // Check if this model is sharded
+      if (selectedModel in shardedConfigs.configs) {
+        // Use sharded endpoint
+        return chatApi.sendLlamaShardedMessage(request as DistributedInferenceRequest);
+      } else {
+        // Use regular endpoint
+        return chatApi.sendMessage(request as InferenceRequest);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chat-history'] });
-      setMessageInput('');
+      // Input is already cleared when sending
+    },
+    onError: (error, variables) => {
+      console.error('Chat error:', error);
+      // Restore the message so user can retry
+      setMessageInput('message' in variables ? variables.message : '');
     },
   });
 
@@ -99,13 +123,29 @@ export function Chat() {
   const handleSendMessage = () => {
     if (!messageInput.trim() || !selectedModel) return;
 
-    const request: InferenceRequest = {
-      message: messageInput.trim(),
-      model_id: selectedModel,
-      temperature,
-    };
+    const message = messageInput.trim();
+    
+    // Clear input immediately to show message was submitted
+    setMessageInput('');
 
-    sendMessageMutation.mutate(request);
+    // Check if this model is sharded and create appropriate request
+    if (selectedModel in shardedConfigs.configs) {
+      const request: DistributedInferenceRequest = {
+        message,
+        model_id: selectedModel,
+        temperature,
+        max_tokens: 150,
+        sharding_strategy: 'layer_split'
+      };
+      sendMessageMutation.mutate(request);
+    } else {
+      const request: InferenceRequest = {
+        message,
+        model_id: selectedModel,
+        temperature,
+      };
+      sendMessageMutation.mutate(request);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -128,6 +168,11 @@ export function Chat() {
             {selectedModel && (
               <p className="text-sm text-gray-600">
                 Using {models.find(m => m.id === selectedModel)?.name}
+                {selectedModel in shardedConfigs.configs && (
+                  <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                    Sharded
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -136,6 +181,9 @@ export function Chat() {
             <div className="flex items-center text-sm text-gray-600">
               <Cpu className="h-4 w-4 mr-1" />
               {devicesForModel.length} device(s) available
+              {selectedModel in shardedConfigs.configs && (
+                <span className="ml-2 text-xs text-blue-600">(Distributed)</span>
+              )}
             </div>
           )}
         </div>
@@ -172,7 +220,13 @@ export function Chat() {
           <div className="flex space-x-2">
             <textarea
               value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
+              onChange={(e) => {
+                setMessageInput(e.target.value);
+                // Clear error when user starts typing
+                if (sendMessageMutation.isError) {
+                  sendMessageMutation.reset();
+                }
+              }}
               onKeyPress={handleKeyPress}
               placeholder={
                 availableModels.length === 0 
@@ -200,6 +254,20 @@ export function Chat() {
               )}
             </button>
           </div>
+          
+          {/* Error message */}
+          {sendMessageMutation.isError && (
+            <div className="mt-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-800">
+                Failed to send message. Please try again.
+                {sendMessageMutation.error?.message && (
+                  <span className="block text-xs text-red-600 mt-1">
+                    {sendMessageMutation.error.message}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -224,6 +292,7 @@ export function Chat() {
                 {availableModels.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
+                    {model.id in shardedConfigs.configs ? ' (Sharded)' : ''}
                   </option>
                 ))}
               </select>

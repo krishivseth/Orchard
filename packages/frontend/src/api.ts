@@ -33,6 +33,9 @@ export const modelApi = {
   
   deployLlamaSharded: (deployment: any) =>
     api.post('/models/deploy-llama-sharded', deployment).then(res => res.data),
+  
+  getShardedConfigs: (): Promise<{configs: Record<string, any>}> =>
+    api.get('/models/sharded-configs').then(res => res.data),
 };
 
 export const chatApi = {

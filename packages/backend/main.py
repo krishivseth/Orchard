@@ -144,6 +144,13 @@ async def get_models():
     """Get all available LLM models"""
     return list(models.values())
 
+@app.get("/api/models/sharded-configs")
+async def get_sharded_model_configs():
+    """Get all sharded model configurations"""
+    return {
+        "configs": {model_id: config.model_dump(mode='json') for model_id, config in llama_sharding_engine.sharding_configs.items()}
+    }
+
 @app.post("/api/models/deploy")
 async def deploy_model(deployment: ModelDeploymentRequest):
     """Deploy a model to selected devices"""
@@ -179,12 +186,12 @@ async def deploy_model(deployment: ModelDeploymentRequest):
                 )
                 if response.status_code == 200:
                     device.current_model = deployment.model_id
-                    device.status = DeviceStatus.BUSY
+                    device.status = DeviceStatus.ONLINE  # Device is ready for inference after successful deployment
                     deployment_results.append(ModelDeploymentStatus(
                         model_id=deployment.model_id,
                         device_id=device_id,
-                        status="loading",
-                        progress_percent=0
+                        status="ready",  # Changed from "loading" to "ready" since deployment completed
+                        progress_percent=100
                     ))
                 else:
                     deployment_results.append(ModelDeploymentStatus(
@@ -243,6 +250,9 @@ async def deploy_llama_sharded_model(deployment: dict):
                     )
                     
                     if response.status_code == 200:
+                        # Mark device as running this sharded model
+                        device.current_model = model_id
+                        device.status = DeviceStatus.ONLINE
                         deployment_results.append(ModelDeploymentStatus(
                             model_id=model_id,
                             device_id=device.id,
@@ -272,7 +282,7 @@ async def deploy_llama_sharded_model(deployment: dict):
         
         return {
             "status": "success",
-            "config": config.dict(),
+            "config": config.model_dump(mode='json'),
             "deployments": deployment_results
         }
         
@@ -301,7 +311,7 @@ async def chat(request: InferenceRequest):
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"http://{selected_device.ip_address}:{selected_device.port}/inference",
-                json=request.dict()
+                json=request.model_dump(mode='json')
             )
             
             if response.status_code == 200:
@@ -328,7 +338,7 @@ async def chat(request: InferenceRequest):
                 # Broadcast to WebSocket clients
                 await manager.broadcast({
                     "type": "new_message",
-                    "message": assistant_message.dict()
+                    "message": assistant_message.model_dump(mode='json')
                 })
                 
                 return InferenceResponse(
@@ -359,6 +369,29 @@ async def llama_sharded_chat(request: DistributedInferenceRequest):
         response = await llama_sharding_engine.execute_llama_sharded_inference(request, config)
         
         processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
+        
+        # Store chat messages
+        user_message = ChatMessage(
+            id=str(uuid.uuid4()),
+            content=request.message,
+            role="user",
+            timestamp=start_time
+        )
+        assistant_message = ChatMessage(
+            id=str(uuid.uuid4()),
+            content=response,
+            role="assistant",
+            timestamp=datetime.now(),
+            device_id=",".join(config.devices_used)  # Multiple devices for sharded
+        )
+        
+        chat_history.extend([user_message, assistant_message])
+        
+        # Broadcast to WebSocket clients
+        await manager.broadcast({
+            "type": "new_message",
+            "message": assistant_message.model_dump(mode='json')
+        })
         
         # Calculate shard contributions
         shard_contributions = {}

@@ -22,7 +22,11 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    // In development, frontend runs on 3000 but backend on 8000
+    const backendHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+      ? `${window.location.hostname}:8000` 
+      : window.location.host;
+    const wsUrl = `${protocol}//${backendHost}/ws`;
     
     const ws = new WebSocket(wsUrl);
     

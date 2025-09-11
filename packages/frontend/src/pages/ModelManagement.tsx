@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelApi, deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { Brain, Download, Play, CheckCircle, XCircle, Loader } from 'lucide-react';
+import { Brain, Play, Loader } from 'lucide-react';
 import { LLMModel, DeviceInfo, ShardingStrategy } from '../types';
 
 function ModelCard({ 
@@ -291,4 +291,4 @@ export function ModelManagement() {
       )}
     </div>
   );
-} 
+}

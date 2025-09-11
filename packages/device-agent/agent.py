@@ -25,42 +25,57 @@ from ollama_inference import OllamaInferenceEngine
 
 def get_network_ip() -> str:
     """Get the primary network IP address, preferring Thunderbolt Bridge"""
+    import platform
+    system = platform.system().lower()
     try:
-        # Try to get all network interfaces
-        import subprocess
-        result = subprocess.run(['ifconfig'], capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            lines = result.stdout.split('\n')
-            for i, line in enumerate(lines):
-                # Look for Thunderbolt Bridge interface
-                if 'bridge100' in line or 'thunderbolt' in line.lower():
-                    # Find the inet line that follows
-                    for j in range(i+1, min(i+10, len(lines))):
-                        if 'inet ' in lines[j] and '127.0.0.1' not in lines[j]:
-                            ip = lines[j].split()[1]
-                            if ip.startswith('169.254.'):
-                                logger.info(f"Found Thunderbolt Bridge IP: {ip}")
-                                return ip
-                
-                # Also look for any 169.254.x.x IP (Thunderbolt Bridge range)
-                if 'inet ' in line and '169.254.' in line:
-                    ip = line.split()[1]
-                    if ip != '127.0.0.1':
-                        logger.info(f"Found network IP: {ip}")
-                        return ip
-        
-        # Fallback: try to connect to a remote address to determine local IP
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                if ip != '127.0.0.1':
-                    logger.info(f"Found network IP via connection: {ip}")
-                    return ip
-        except:
-            pass
+        if system == "windows":
+            # Use ipconfig on Windows
+            import subprocess
+            result = subprocess.run(['ipconfig'], capture_output=True, text=True)
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if "IPv4 Address" in line or "IPv4-adress" in line:
+                        ip = line.split(":")[-1].strip()
+                        if ip != "127.0.0.1":
+                            logger.info(f"Found network IP on Windows: {ip}")
+                            return ip
+        else:
+            # Try to get all network interfaces on Unix-like systems
+            import subprocess
+            result = subprocess.run(['ifconfig'], capture_output=True, text=True)
             
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for i, line in enumerate(lines):
+                    # Look for Thunderbolt Bridge interface
+                    if 'bridge100' in line or 'thunderbolt' in line.lower():
+                        # Find the inet line that follows
+                        for j in range(i+1, min(i+10, len(lines))):
+                            if 'inet ' in lines[j] and '127.0.0.1' not in lines[j]:
+                                ip = lines[j].split()[1]
+                                if ip.startswith('169.254.'):
+                                    logger.info(f"Found Thunderbolt Bridge IP: {ip}")
+                                    return ip
+                    
+                    # Also look for any 169.254.x.x IP (Thunderbolt Bridge range)
+                    if 'inet ' in line and '169.254.' in line:
+                        ip = line.split()[1]
+                        if ip != '127.0.0.1':
+                            logger.info(f"Found network IP: {ip}")
+                            return ip
+            
+            # Fallback: try to connect to a remote address to determine local IP
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.connect(("8.8.8.8", 80))
+                    ip = s.getsockname()[0]
+                    if ip != '127.0.0.1':
+                        logger.info(f"Found network IP via connection: {ip}")
+                        return ip
+            except:
+                pass
+                
     except Exception as e:
         logger.warning(f"Error detecting network IP: {e}")
     
@@ -76,7 +91,8 @@ class LLMInferenceEngine:
         self.model_responses = {
             "llama2-7b": "This is a response from Llama 2 7B running on {}",
             "mistral-7b": "This is a response from Mistral 7B running on {}",
-            "phi-3-mini": "This is a response from Phi-3 Mini running on {}"
+            "phi-3-mini": "This is a response from Phi-3 Mini running on {}",
+            "llama-3.2-1b": "This is a response from Llama 3.2 1B running on {}"
         }
     
     async def load_model(self, model_id: str) -> bool:
@@ -185,6 +201,7 @@ class DeviceAgent:
             
             try:
                 success = await self.inference_engine.load_model(model_id)
+                
                 if success:
                     self.device_info.current_model = model_id
                     self.device_info.status = DeviceStatus.ONLINE
@@ -375,4 +392,4 @@ async def main():
     await agent.start()
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

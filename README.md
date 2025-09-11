@@ -92,6 +92,88 @@ npm run dev
 
 The web interface will be available at `http://localhost:3000`
 
+## Mobile (Android/iOS) with Capacitor 📱
+
+### Prerequisites
+
+- Node.js 18+
+- Android: Android Studio (latest), Android SDK, an emulator or device, Java 17 (recommended)
+- iOS: macOS with Xcode (latest) and an iOS simulator or device, CocoaPods (`sudo gem install cocoapods`)
+
+### Backend URL note
+
+The frontend calls the backend at `http://localhost:8000/api` (see `packages/frontend/src/api.ts`). On mobile emulators/devices, `localhost` refers to the device itself, not your computer.
+
+- Update the base URL to your machine's LAN IP, e.g. `http://192.168.1.10:8000/api`, or
+- Use an environment mechanism you prefer and rebuild before syncing.
+
+Ensure your backend is reachable from the device/emulator.
+
+### 1) Build the frontend
+
+```
+cd packages/frontend
+npm run build
+```
+
+This generates the web assets in `packages/frontend/dist` used by Capacitor.
+
+### 2) Android
+
+Option A — Using the provided Windows script:
+
+```
+scripts\run-android-react.bat
+```
+
+Option B — Manual commands:
+
+```
+cd packages/frontend
+npx cap sync android
+npx cap open android
+```
+
+Then in Android Studio:
+- Select a device/emulator
+- Build and Run the app
+
+Alternatively, from CLI (if you have an emulator/device connected):
+
+```
+npx cap run android
+```
+
+### 3) iOS (macOS only)
+
+```
+cd packages/frontend
+npx cap sync ios
+npx cap open ios
+```
+
+Then in Xcode:
+- Select a simulator or a connected device
+- Build and Run the app
+
+Alternatively, from CLI (CocoaPods/Xcode tools required):
+
+```
+npx cap run ios
+```
+
+### 4) Rebuilding after changes
+
+When you change the frontend:
+
+```
+cd packages/frontend
+npm run build
+npx cap sync android   # or ios
+```
+
+Re-run from Android Studio/Xcode (or `npx cap run ...`).
+
 ## Usage Guide 📖
 
 ### 1. Dashboard

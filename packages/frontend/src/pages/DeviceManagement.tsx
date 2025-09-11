@@ -1,4 +1,3 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -112,7 +111,7 @@ function DeviceCard({ device }: { device: DeviceInfo }) {
 }
 
 export function DeviceManagement() {
-  const { devices: wsDevices, isConnected } = useWebSocket();
+  const { devices: wsDevices } = useWebSocket();
   const { data: devices = [], refetch } = useQuery({
     queryKey: ['devices'],
     queryFn: deviceApi.getDevices,
@@ -199,4 +198,4 @@ export function DeviceManagement() {
       )}
     </div>
   );
-} 
+}

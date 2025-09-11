@@ -278,3 +278,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp 
+
+# Android Frontend
+android

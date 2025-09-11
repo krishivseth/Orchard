@@ -7,6 +7,8 @@ class DeviceType(str, Enum):
     MAC = "mac"
     IPHONE = "iphone"
     IPAD = "ipad"
+    WINDOWS = "windows"
+    ANDROID = "android"
 
 class DeviceStatus(str, Enum):
     ONLINE = "online"

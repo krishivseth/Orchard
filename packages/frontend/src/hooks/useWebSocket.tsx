@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { DeviceInfo, DeviceHealthMetrics, ChatMessage } from '../types';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { DeviceInfo } from '../types';
 
 interface WebSocketContextType {
   isConnected: boolean;
@@ -108,4 +108,4 @@ export function useWebSocket() {
     throw new Error('useWebSocket must be used within a WebSocketProvider');
   }
   return context;
-} 
+}

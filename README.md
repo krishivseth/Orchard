@@ -11,6 +11,10 @@ A distributed system for hosting and running Large Language Models (LLMs) across
 - **WebSocket Integration**: Real-time updates for device status and chat messages
 - **Distributed Architecture**: Built with modern distributed systems best practices
 
+## Demo
+
+https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing
+
 ## Architecture 🏗️
 
 ```

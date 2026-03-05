@@ -2,7 +2,7 @@
 
 A distributed system for hosting and running Large Language Models (LLMs) across Apple devices (Mac, iPhone, iPad). This project enables you to leverage the combined computing power of your Apple ecosystem for LLM inference.
 
-## Features ✨
+## Features
 
 - **Multi-Device Support**: Deploy LLMs across Mac, iPhone, and iPad devices
 - **Real-time Monitoring**: Live device health, memory usage, and performance metrics
@@ -15,7 +15,7 @@ A distributed system for hosting and running Large Language Models (LLMs) across
 
 https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing
 
-## Architecture 🏗️
+## Architecture 
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -29,7 +29,7 @@ https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=shari
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## Quick Start 🚀
+## Quick Start 
 
 ### Prerequisites
 

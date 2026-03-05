@@ -15,7 +15,7 @@ A distributed system for hosting and running Large Language Models (LLMs) across
 
 https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing
 
-[![Watch the demo]](https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing)
+(https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing)
 
 ## Architecture 
 

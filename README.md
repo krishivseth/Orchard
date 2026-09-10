@@ -31,11 +31,18 @@ https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=shari
 
 ## Quick Start 
 
+### Running Options
+
+Orchard can be run in two ways:
+1. **Web Application** - Frontend, backend, and device agents run separately
+2. **Desktop Application (macOS)** - Electron app with bundled backend (see [ELECTRON_GUIDE.md](./ELECTRON_GUIDE.md))
+
 ### Prerequisites
 
-- Python 3.8+ 
+- Python 3.10+
 - Node.js 18+
 - npm or yarn
+- PyInstaller (for Electron desktop app builds)
 
 ### 1. Install Dependencies
 
@@ -95,6 +102,33 @@ npm run dev
 ```
 
 The web interface will be available at `http://localhost:3000`
+
+### Alternative: Desktop App (macOS)
+
+For a simpler setup, use the Electron desktop app:
+
+```bash
+cd packages/frontend
+npm run electron:dev
+```
+
+The backend starts automatically with the app. See [ELECTRON_GUIDE.md](./ELECTRON_GUIDE.md) for more details.
+
+### Configuration
+
+All settings are environment variables with sensible defaults.
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `ORCHARD_TOKEN` | backend, agent | Shared secret. When set, agents must send it to register/heartbeat and the backend must send it to call agents. Unset = no auth (local dev only). |
+| `ORCHARD_AGENT_IP` | agent | Advertise this IP instead of auto-detecting one. |
+| `ORCHARD_OLLAMA_MODEL` | agent | Ollama tag used for inference (default `llama3.2:1b`). |
+| `OLLAMA_HOST` | agent | Ollama API base URL (default `http://localhost:11434`). |
+| `ORCHARD_USE_TORCH` | agent | Set to `1` to enable layer-split sharding (needs torch + transformers). See [LLAMA_SHARDING_README.md](./LLAMA_SHARDING_README.md). |
+| `ORCHARD_HF_MODEL` | backend, agent | Hugging Face checkpoint used for sharding (default `meta-llama/Llama-3.2-1B`). |
+| `ORCHARD_OLLAMA_TAG_<MODEL_ID>` | agent | Override the Ollama tag for a catalog model, e.g. `ORCHARD_OLLAMA_TAG_MISTRAL_7B=mistral:7b-instruct`. |
+
+The device agent needs [Ollama](https://ollama.com) running locally with the model pulled (`ollama pull llama3.2:1b`).
 
 ## Usage Guide 📖
 

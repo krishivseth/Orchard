@@ -96,7 +96,7 @@ cd ../..
 sleep 3
 
 # Check if backend is running
-if ! curl -s http://localhost:8000/api/models > /dev/null; then
+if ! curl -s http://localhost:8000/health > /dev/null; then
     echo -e "${RED}Error: Backend failed to start. Check logs/backend.log${NC}"
     kill $BACKEND_PID 2>/dev/null || true
     exit 1

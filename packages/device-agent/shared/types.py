@@ -78,6 +78,7 @@ class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     timestamp: datetime
     device_id: Optional[str] = None
+    device_ids: List[str] = []
 
 class InferenceRequest(BaseModel):
     message: str
@@ -92,9 +93,11 @@ class InferenceResponse(BaseModel):
 
 class DeviceHealthMetrics(BaseModel):
     device_id: str
-    memory_usage_gb: float
+    memory_usage_gb: float          # memory currently in use on the device
+    available_memory_gb: Optional[float] = None
+    total_memory_gb: Optional[float] = None
     cpu_usage_percent: float
-    temperature_celsius: Optional[float]
+    temperature_celsius: Optional[float] = None
     inference_count: int
     average_response_time_ms: float
     timestamp: datetime

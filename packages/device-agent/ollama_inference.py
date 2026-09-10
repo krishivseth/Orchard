@@ -1,179 +1,140 @@
-import asyncio
-import json
-import subprocess
-import tempfile
 import os
 from typing import Dict, List, Optional, Any
+
+import httpx
 from loguru import logger
-from shared_types import ModelShard, ShardingStrategy
+
+
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "llama3.2:1b"
+
+# Orchard catalog model id -> Ollama tag. Unknown ids are rejected rather than silently
+# mapped to a default model.
+MODEL_TAGS: Dict[str, str] = {
+    "llama-3.2-1b": "llama3.2:1b",
+    "llama2-7b": "llama2:7b",
+    "mistral-7b": "mistral:7b",
+    "phi-3-mini": "phi3:mini",
+}
+
+
+class OllamaUnavailableError(RuntimeError):
+    """Raised when the Ollama server cannot be reached."""
+
 
 class OllamaInferenceEngine:
-    """Ollama-based inference engine for distributed sharding"""
-    
-    def __init__(self):
-        self.loaded_shards: Dict[str, Any] = {}
-        self.ollama_models = self._get_available_models()
-        
-    def _get_available_models(self) -> List[str]:
-        """Get list of available Ollama models"""
+    """Ollama-backed inference engine (HTTP API) for whole-model inference on one device."""
+
+    def __init__(self, base_url: Optional[str] = None, timeout: float = 120.0):
+        self.base_url = (base_url or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST).rstrip("/")
+        if not self.base_url.startswith("http"):
+            self.base_url = f"http://{self.base_url}"
+        self.default_model = os.environ.get("ORCHARD_OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+        self.loaded_model: Optional[str] = None   # model id as deployed by the backend
+        self.ollama_models: List[str] = []
+        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+
+    async def close(self):
+        await self._client.aclose()
+
+    # ------------------------------------------------------------------ models
+
+    async def list_models(self) -> List[str]:
+        """Return the model tags available in Ollama. Raises OllamaUnavailableError if unreachable."""
         try:
-            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')[1:]  # Skip header
-                models = []
-                for line in lines:
-                    if line.strip():
-                        model_name = line.split()[0]  # First column is model name
-                        models.append(model_name)
-                logger.info(f"Available Ollama models: {models}")
-                return models
-            else:
-                logger.error(f"Failed to get Ollama models: {result.stderr}")
-                return []
-        except Exception as e:
-            logger.error(f"Error getting Ollama models: {e}")
-            return []
-    
-    async def load_llama_shard(self, shard: ModelShard) -> bool:
-        """Load a Llama shard using Ollama"""
+            response = await self._client.get("/api/tags", timeout=10.0)
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise OllamaUnavailableError(f"Cannot reach Ollama at {self.base_url}: {e}") from e
+        models = [m.get("name") for m in response.json().get("models", []) if m.get("name")]
+        self.ollama_models = models
+        return models
+
+    def resolve_model_tag(self, model_id: Optional[str]) -> str:
+        """Map an Orchard model id to an Ollama tag. Raises ValueError for unknown ids."""
+        if not model_id:
+            return self.default_model
+        if ":" in model_id:  # already an Ollama tag
+            return model_id
+        override = os.environ.get(f"ORCHARD_OLLAMA_TAG_{model_id.upper().replace('-', '_')}")
+        if override:
+            return override
+        tag = MODEL_TAGS.get(model_id)
+        if tag is None:
+            raise ValueError(
+                f"Unknown model id '{model_id}'. Known: {sorted(MODEL_TAGS)}. "
+                f"Set ORCHARD_OLLAMA_TAG_{model_id.upper().replace('-', '_')} to map it."
+            )
+        return tag
+
+    async def load_model(self, model_id: str) -> None:
+        """Record a deployed model after verifying its Ollama tag exists."""
+        tag = self.resolve_model_tag(model_id)
+        available = await self.list_models()
+        if tag not in available:
+            raise ValueError(
+                f"Model '{tag}' is not available in Ollama (have: {available or 'none'}). "
+                f"Run `ollama pull {tag}` on this device."
+            )
+        self.loaded_model = model_id
+        logger.info(f"Model {model_id} ready via Ollama tag {tag}")
+
+    async def unload_model(self):
+        if self.loaded_model:
+            logger.info(f"Unloading model {self.loaded_model}")
+            self.loaded_model = None
+
+    async def generate(
+        self,
+        prompt: str,
+        model_id: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> str:
+        """Generate a completion for a deployed model."""
+        tag = self.resolve_model_tag(model_id or self.loaded_model)
+        return await self._run_ollama_inference(tag, prompt, max_tokens=max_tokens, temperature=temperature)
+
+    # ------------------------------------------------------------------ internals
+
+    async def _run_ollama_inference(
+        self,
+        model_name: str,
+        prompt: str,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> str:
+        """Call POST /api/generate (non-streaming). Raises on failure."""
+        options: Dict[str, Any] = {}
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        if temperature is not None:
+            options["temperature"] = float(temperature)
+
+        payload: Dict[str, Any] = {"model": model_name, "prompt": prompt, "stream": False}
+        if options:
+            payload["options"] = options
+
         try:
-            # Check if the model is available in Ollama
-            model_name = "llama3.2:1b"  # Use the 1B model we just downloaded
-            
-            if model_name not in self.ollama_models:
-                logger.error(f"Model {model_name} not available in Ollama")
-                return False
-            
-            # Store shard info
-            self.loaded_shards[shard.shard_id] = {
-                "type": "ollama",
-                "model_name": model_name,
-                "layer_start": shard.layer_start,
-                "layer_end": shard.layer_end,
-                "shard_type": shard.shard_type
-            }
-            
-            logger.info(f"Loaded Ollama shard {shard.shard_id} using {model_name}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to load Ollama shard {shard.shard_id}: {e}")
-            return False
-    
-    async def process_llama_layer_shard(self, input_data: str, layer_start: int, layer_end: int) -> str:
-        """Process input through Ollama with layer context"""
-        try:
-            # Find the shard that contains these layers
-            shard_id = None
-            for sid, shard_data in self.loaded_shards.items():
-                if (shard_data["layer_start"] <= layer_start and 
-                    shard_data["layer_end"] >= layer_end):
-                    shard_id = sid
-                    break
-            
-            if not shard_id:
-                return f"Layers {layer_start}-{layer_end} processed: {input_data}"
-            
-            shard_data = self.loaded_shards[shard_id]
-            model_name = shard_data["model_name"]
-            
-            # Create a prompt that includes layer context
-            prompt = f"[Processing layers {layer_start}-{layer_end}] {input_data}"
-            
-            # Run Ollama inference
-            result = await self._run_ollama_inference(model_name, prompt)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error processing Ollama layer shard: {e}")
-            return f"Layers {layer_start}-{layer_end} processed: {input_data}"
-    
-    async def process_llama_tensor_shard(self, input_data: str) -> str:
-        """Process input through tensor shard using Ollama"""
-        try:
-            # Find any loaded shard
-            if not self.loaded_shards:
-                return f"Ollama tensor shard processed: {input_data}"
-            
-            shard_id = list(self.loaded_shards.keys())[0]
-            shard_data = self.loaded_shards[shard_id]
-            model_name = shard_data["model_name"]
-            
-            prompt = f"[Tensor processing] {input_data}"
-            result = await self._run_ollama_inference(model_name, prompt)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error processing Ollama tensor shard: {e}")
-            return f"Ollama tensor shard processed: {input_data}"
-    
-    async def process_llama_pipeline_stage(self, input_data: str, stage_id: str) -> str:
-        """Process input through pipeline stage using Ollama"""
-        try:
-            # Find any loaded shard
-            if not self.loaded_shards:
-                return f"Ollama pipeline stage {stage_id} processed: {input_data}"
-            
-            shard_id = list(self.loaded_shards.keys())[0]
-            shard_data = self.loaded_shards[shard_id]
-            model_name = shard_data["model_name"]
-            
-            prompt = f"[Pipeline stage {stage_id}] {input_data}"
-            result = await self._run_ollama_inference(model_name, prompt)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error processing Ollama pipeline stage: {e}")
-            return f"Ollama pipeline stage {stage_id} processed: {input_data}"
-    
-    async def _run_ollama_inference(self, model_name: str, prompt: str) -> str:
-        """Run inference using Ollama"""
-        try:
-            # Create a temporary file for the prompt
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-                f.write(prompt)
-                temp_file = f.name
-            
+            response = await self._client.post("/api/generate", json=payload)
+        except httpx.TimeoutException as e:
+            raise TimeoutError(f"Ollama inference timed out after {self._client.timeout}") from e
+        except httpx.HTTPError as e:
+            raise OllamaUnavailableError(f"Cannot reach Ollama at {self.base_url}: {e}") from e
+
+        if response.status_code != 200:
+            detail = response.text
             try:
-                # Run Ollama with the prompt file
-                result = subprocess.run(
-                    ['ollama', 'run', model_name, prompt],
-                    capture_output=True,
-                    text=True,
-                    timeout=30  # 30 second timeout
-                )
-                
-                if result.returncode == 0:
-                    return result.stdout.strip()
-                else:
-                    logger.error(f"Ollama inference failed: {result.stderr}")
-                    return f"Ollama inference failed: {prompt}"
-                    
-            finally:
-                # Clean up temporary file
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
-                    
-        except subprocess.TimeoutExpired:
-            logger.error(f"Ollama inference timed out for prompt: {prompt}")
-            return f"Ollama inference timed out: {prompt}"
-        except Exception as e:
-            logger.error(f"Error running Ollama inference: {e}")
-            return f"Ollama inference error: {prompt}"
-    
-    async def unload_shard(self, shard_id: str):
-        """Unload a model shard"""
-        if shard_id in self.loaded_shards:
-            del self.loaded_shards[shard_id]
-            logger.info(f"Unloaded Ollama shard {shard_id}")
-    
+                detail = response.json().get("error", detail)
+            except ValueError:
+                pass
+            raise RuntimeError(f"Ollama inference failed ({response.status_code}): {detail}")
+
+        return response.json().get("response", "").strip()
+
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about loaded models"""
         return {
-            "loaded_shards": len(self.loaded_shards),
+            "loaded_model": self.loaded_model,
             "available_models": self.ollama_models,
-            "shard_details": self.loaded_shards
-        } 
+        }

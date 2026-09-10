@@ -1,12 +1,33 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelApi, deviceApi } from '../api';
+import axios from 'axios';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { Brain, Play, Loader } from 'lucide-react';
-import { LLMModel, DeviceInfo } from '../types';
+import { Brain, Play, Loader, AlertCircle, CheckCircle } from 'lucide-react';
+import { LLMModel, DeviceInfo, ModelDeploymentStatus } from '../types';
 
 // Models the backend can shard (mirrors LLAMA_ARCHITECTURES in backend/llama_sharding.py).
 // Only real layer-split sharding is implemented; agents must run with ORCHARD_USE_TORCH=1.
+/** Turn an axios/backend error into a one-line message a user can act on. */
+function describeApiError(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const detail = err.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object') {
+      const d = detail as { failed_devices?: unknown[]; deployments?: ModelDeploymentStatus[] };
+      if (d.failed_devices?.length) {
+        const reasons = (d.deployments ?? [])
+          .filter(x => x.status !== 'ready')
+          .map(x => `${x.device_id}: ${x.error_message ?? x.status}`);
+        return `Sharded deploy failed: ${reasons.length ? reasons.join(' | ') : d.failed_devices.join(', ')}`;
+      }
+      if ('message' in detail) return String((detail as { message: unknown }).message);
+    }
+    return err.message;
+  }
+  return err instanceof Error ? err.message : 'Unknown error';
+}
+
 const SHARDABLE_MODELS = ['llama-3.2-1b'];
 
 function ModelCard({ 
@@ -209,18 +230,34 @@ export function ModelManagement() {
     refetchInterval: 5000,
   });
 
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
   const deployMutation = useMutation({
     mutationFn: modelApi.deployModel,
-    onSuccess: () => {
+    onSuccess: (data: { deployments: ModelDeploymentStatus[] }) => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      const failed = data.deployments.filter(d => d.status === 'failed');
+      if (failed.length === 0) {
+        setNotice({ kind: 'success', text: `Deployed to ${data.deployments.length} device(s)` });
+      } else {
+        const names = failed.map(d => {
+          const dev = devices.find(x => x.id === d.device_id);
+          return `${dev?.name ?? d.device_id}: ${d.error_message ?? 'failed'}`;
+        });
+        setNotice({ kind: 'error', text: `Deployment failed on ${failed.length} device(s). ${names.join(' | ')}` });
+      }
     },
+    onError: (err: unknown) => setNotice({ kind: 'error', text: describeApiError(err) }),
   });
 
   const deployShardedMutation = useMutation({
     mutationFn: modelApi.deployLlamaSharded,
-    onSuccess: () => {
+    onSuccess: (data: { config?: { devices_used?: string[] } }) => {
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['sharded-configs'] });
+      setNotice({ kind: 'success', text: `Sharded across ${data.config?.devices_used?.length ?? 0} device(s)` });
     },
+    onError: (err: unknown) => setNotice({ kind: 'error', text: describeApiError(err) }),
   });
 
   // Use WebSocket devices if available, otherwise fall back to query data
@@ -247,6 +284,25 @@ export function ModelManagement() {
           Deploy and manage LLM models across your devices
         </p>
       </div>
+
+      {notice && !deployMutation.isPending && !deployShardedMutation.isPending && (
+        <div
+          role="status"
+          className={`rounded-lg border p-4 flex items-start ${
+            notice.kind === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'
+          }`}
+        >
+          {notice.kind === 'error' ? (
+            <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+          ) : (
+            <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+          )}
+          <span className="flex-1 text-sm">{notice.text}</span>
+          <button onClick={() => setNotice(null)} className="ml-4 text-sm underline" aria-label="Dismiss">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Deployment Status */}
       {(deployMutation.isPending || deployShardedMutation.isPending) && (

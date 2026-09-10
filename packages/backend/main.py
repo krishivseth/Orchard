@@ -306,7 +306,7 @@ class ShardedDeploymentRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "orchard-backend"}
 
 
 # --------------------------------------------------------------------------- #
@@ -475,7 +475,16 @@ async def _deploy_to_device(client: httpx.AsyncClient, model: LLMModel, device_i
 
     if response.status_code != 200:
         logger.error(f"Deploy to {device.name} ({device_id}) returned HTTP {response.status_code}")
-        return _failed(model.id, device_id, f"Device deployment failed (HTTP {response.status_code})")
+        message = f"Device deployment failed (HTTP {response.status_code})"
+        if 400 <= response.status_code < 500:
+            # Agent-side validation errors (e.g. model not pulled) are actionable for the user.
+            try:
+                detail = response.json().get("detail")
+                if isinstance(detail, str) and detail:
+                    message = detail[:300]
+            except ValueError:
+                pass
+        return _failed(model.id, device_id, message)
 
     device.current_model = model.id
     device.status = DeviceStatus.ONLINE

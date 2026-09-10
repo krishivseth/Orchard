@@ -19,17 +19,8 @@ const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
 
 function resolveWsUrl(): string {
-  if (window.electronAPI) {
-    // In Electron, use the backend URL directly
-    return backendBaseUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:') + '/ws';
-  }
-  // In web browser, use standard logic
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const backendHost =
-    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? `${window.location.hostname}:8000`
-      : window.location.host;
-  return `${protocol}//${backendHost}/ws`;
+  // Same origin as the REST API (Electron preload, VITE_BACKEND_URL, or localhost:8000)
+  return backendBaseUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:') + '/ws';
 }
 
 export function WebSocketProvider({ children }: WebSocketProviderProps) {

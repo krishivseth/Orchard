@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'child_process';
 import http from 'http';
 import net from 'net';
 import path from 'path';
+import fs from 'fs';
 
 const DEV_SERVER_URL = 'http://localhost:3000';
 const HEALTH_POLL_INTERVAL_MS = 250;
@@ -22,7 +23,9 @@ function isPortAvailable(port: number): Promise<boolean> {
       server.close();
       resolve(true);
     });
-    server.listen(port);
+    // Bind the IPv4 wildcard like uvicorn does; the IPv6 wildcard can succeed on macOS
+    // even when another process already owns the IPv4 port.
+    server.listen(port, '0.0.0.0');
   });
 }
 
@@ -38,12 +41,22 @@ async function findAvailablePort(startPort = 8000): Promise<number> {
   throw new Error('No available ports found');
 }
 
-// Single GET request; resolves true on a 2xx response
+// GET /health and require the Orchard service marker, so a foreign server on the same
+// port (or a stale process) is never mistaken for our backend.
 function probe(url: string): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(url, (res) => {
-      res.resume();
-      resolve(res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 300);
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(false);
+        try {
+          resolve(JSON.parse(body).service === 'orchard-backend');
+        } catch {
+          resolve(false);
+        }
+      });
     });
     req.on('error', () => resolve(false));
     req.setTimeout(1000, () => {
@@ -58,14 +71,13 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Poll the backend until it answers /health (or /api/models as a fallback)
 async function waitForBackend(port: number): Promise<void> {
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
-  const healthUrl = `http://localhost:${port}/health`;
-  const fallbackUrl = `http://localhost:${port}/api/models`;
+  const healthUrl = `http://127.0.0.1:${port}/health`;
 
   while (Date.now() < deadline) {
     if (backendExited) {
       throw new Error('Backend process exited before it became ready');
     }
-    if ((await probe(healthUrl)) || (await probe(fallbackUrl))) {
+    if (await probe(healthUrl)) {
       return;
     }
     await sleep(HEALTH_POLL_INTERVAL_MS);
@@ -87,7 +99,11 @@ async function startBackend(): Promise<void> {
     // __dirname is at: packages/frontend/out/main
     // We need to get to the Orchard root (4 levels up)
     const projectRoot = path.join(__dirname, '..', '..', '..', '..');
-    backendPath = 'python3';
+    // Prefer an explicit interpreter, then the backend's own virtualenv, then python3 on PATH.
+    const venvPython = path.join(projectRoot, 'packages', 'backend', '.venv', 'bin', 'python');
+    backendPath =
+      process.env.ORCHARD_PYTHON ||
+      (fs.existsSync(venvPython) ? venvPython : 'python3');
     backendArgs = [
       path.join(projectRoot, 'packages', 'backend', 'main.py'),
       '--port',

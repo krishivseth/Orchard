@@ -1,10 +1,6 @@
 fastapi==0.115.6
 uvicorn==0.32.1
-websockets==13.0
+websockets==13.0  # not imported directly, but uvicorn needs a WS implementation to serve /ws
 pydantic==2.10.4
-python-multipart==0.0.20
-aiofiles==24.1.0
 httpx==0.28.0
-python-socketio==5.11.1
-redis==5.2.1
-loguru==0.7.2 
+loguru==0.7.2

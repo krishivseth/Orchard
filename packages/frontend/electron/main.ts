@@ -111,7 +111,7 @@ async function startBackend(): Promise<void> {
     ];
   } else {
     // Production: use bundled executable
-    backendPath = path.join(process.resourcesPath, 'backend', 'orchard-backend');
+    backendPath = path.join(process.resourcesPath, 'backend', 'orchard-backend', 'orchard-backend');
     backendArgs = ['--port', backendPort.toString()];
   }
 

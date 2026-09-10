@@ -70,7 +70,10 @@ class LlamaShardedLoader:
     def device(self):
         if self._device is None:
             torch = _import_torch()
-            if torch.cuda.is_available():
+            forced = os.environ.get("ORCHARD_TORCH_DEVICE")
+            if forced:
+                self._device = torch.device(forced)
+            elif torch.cuda.is_available():
                 self._device = torch.device("cuda")
             elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
                 self._device = torch.device("mps")

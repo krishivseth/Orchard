@@ -14,7 +14,7 @@ def main():
     print("Building Orchard Backend with PyInstaller...")
     
     # Get the directory of this script
-    script_dir = Path(__file__).parent.absolute()
+    script_dir = Path(__file__).resolve().parent  # resolve() normalizes ".." when invoked as ../backend/build.py
     project_root = script_dir.parent.parent
     
     # Output directory for the bundled executable
@@ -34,8 +34,9 @@ def main():
     
     # PyInstaller command
     pyinstaller_args = [
-        "pyinstaller",
-        "--onefile",  # Single executable file
+        sys.executable, "-m", "PyInstaller",
+        "--onedir",  # Directory bundle: electron-builder can code-sign every binary consistently
+        "--contents-directory", "_internal",
         "--name", "orchard-backend",  # Executable name
         "--clean",  # Clean cache
         "--noconfirm",  # Don't ask for confirmation
@@ -83,19 +84,21 @@ def main():
     
     print("PyInstaller completed successfully!")
     
-    # Copy the executable to the resources directory
-    executable = dist_dir / "orchard-backend"
-    
+    # Copy the bundle directory to the resources directory.
+    # (One-file mode is deliberately avoided: it unpacks a Python framework at runtime whose
+    # code signature does not match the app's, and macOS refuses to load it.)
+    bundle_dir = dist_dir / "orchard-backend"
+    executable = bundle_dir / "orchard-backend"
+
     if not executable.exists():
         print(f"Error: Executable not found at {executable}")
         sys.exit(1)
-    
-    # Create output directory if it doesn't exist
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Copy executable
     destination = output_dir / "orchard-backend"
-    shutil.copy2(executable, destination)
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(bundle_dir, destination, symlinks=True)
     
     # Make it executable
     os.chmod(destination, 0o755)

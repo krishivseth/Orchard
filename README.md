@@ -127,6 +127,7 @@ All settings are environment variables with sensible defaults.
 | `ORCHARD_USE_TORCH` | agent | Set to `1` to enable layer-split sharding (needs torch + transformers). See [LLAMA_SHARDING_README.md](./LLAMA_SHARDING_README.md). |
 | `VITE_BACKEND_URL` | frontend (web) | Backend origin for the browser build and dev proxy (default `http://localhost:8000`). The Electron app sets this automatically. |
 | `ORCHARD_PYTHON` | Electron dev | Python interpreter used to spawn the backend in `electron:dev` (default: the backend `.venv`, then `python3`). |
+| `ORCHARD_TORCH_DEVICE` | agent | Force the torch device for shards (`cpu`, `mps`, `cuda`). Default: cuda, then mps, then cpu. |
 | `ORCHARD_HF_MODEL` | backend, agent | Hugging Face checkpoint used for sharding (default `meta-llama/Llama-3.2-1B`). |
 | `ORCHARD_OLLAMA_TAG_<MODEL_ID>` | agent | Override the Ollama tag for a catalog model, e.g. `ORCHARD_OLLAMA_TAG_MISTRAL_7B=mistral:7b-instruct`. |
 

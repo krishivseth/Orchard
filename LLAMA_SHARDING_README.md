@@ -33,6 +33,8 @@ has to hold the whole model. This document describes exactly what is implemented
 - Each agent needs access to the Hugging Face checkpoint named by `ORCHARD_HF_MODEL`
   (default `meta-llama/Llama-3.2-1B`, a gated model: run `huggingface-cli login` after
   accepting the license, or point the variable at an ungated mirror).
+- Shards run on CUDA, then Apple MPS, then CPU, whichever is available first. Set
+  `ORCHARD_TORCH_DEVICE` to force one. Verified on MPS and CPU with identical output.
 - Single-device chat does not use torch at all; it goes through Ollama.
 
 ## Usage

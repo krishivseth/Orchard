@@ -277,4 +277,10 @@ logs/
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+
+# Electron
+out/
+dist-electron/
+release/
+packages/frontend/resources/backend/ 

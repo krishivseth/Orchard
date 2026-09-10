@@ -185,7 +185,7 @@ class DeviceAgent:
         memory = psutil.virtual_memory()
         return DeviceInfo(
             id=self.device_id,
-            name=platform.node(),
+            name=os.environ.get("ORCHARD_AGENT_NAME") or platform.node(),
             type=device_type,
             status=DeviceStatus.ONLINE,
             ip_address=self.ip_address,
@@ -507,11 +507,14 @@ def parse_args(argv=None):
     parser.add_argument("--prefer-thunderbolt", action="store_true",
                         help="Prefer a 169.254.x.x Thunderbolt Bridge address when advertising")
     parser.add_argument("--device-id", default=None, help="Override the persisted device id")
+    parser.add_argument("--name", default=None, help="Display name for this device (default: hostname, or ORCHARD_AGENT_NAME)")
     return parser.parse_args(argv)
 
 
 async def main():
     args = parse_args()
+    if args.name:
+        os.environ["ORCHARD_AGENT_NAME"] = args.name
     agent = DeviceAgent(
         backend_url=args.backend,
         port=args.port,

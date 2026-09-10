@@ -1,267 +1,176 @@
-# Orchard - Distributed LLM Platform 🌳
+# Orchard
 
-A distributed system for hosting and running Large Language Models (LLMs) across Apple devices (Mac, iPhone, iPad). This project enables you to leverage the combined computing power of your Apple ecosystem for LLM inference.
+**Run large language models across the Apple devices you already own.**
 
-## Features
+Orchard turns a Mac, a Mac mini and whatever else is on your desk into one inference cluster. A model's transformer layers are split across devices, hidden states stream between them, and you chat with the result from a web UI or a native macOS app.
 
-- **Multi-Device Support**: Deploy LLMs across Mac, iPhone, and iPad devices
-- **Real-time Monitoring**: Live device health, memory usage, and performance metrics
-- **Load Balancing**: Intelligent distribution of inference requests across available devices
-- **Web Interface**: Modern React-based UI for device management, model deployment, and chat
-- **WebSocket Integration**: Real-time updates for device status and chat messages
-- **Distributed Architecture**: Built with modern distributed systems best practices
+<p align="center">
+  <img src="docs/images/chat-sharded.jpg" alt="Orchard chat with Llama 3.2 1B sharded across two devices" width="100%">
+</p>
 
-## Demo
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-React-3178C6?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-sharding-EE4C2C?style=flat-square&logo=pytorch&logoColor=white">
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-macOS%20app-47848F?style=flat-square&logo=electron&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square">
+</p>
 
-https://drive.google.com/file/d/1gUjtkkiOiIw50rW0NhRqXaUvCm_uxBrI/view?usp=sharing
+## What it does
 
-## Architecture 
+- **Layer-split inference.** Llama 3.2 1B is divided into contiguous layer ranges, one per device. The first device holds the embeddings, the last holds the head, and each keeps a KV cache per conversation so every step after the prompt only processes one new token. Output is verified identical to running the whole model on one machine.
+- **Single-device inference through Ollama.** Any device running Ollama can serve a whole model on its own. Deploy from the UI and chat.
+- **A control plane for your devices.** Agents register with the backend, send heartbeats with CPU and memory, and are marked offline and cleaned up when they disappear. Everything updates live over a WebSocket.
+- **A desktop app.** The Electron build bundles the backend with PyInstaller, starts it on a free port, and opens the UI. Quit the app and the backend dies with it.
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │    Backend      │    │ Device Agents   │
-│   (React/TS)    │◄──►│  (FastAPI/Python)│◄──►│   (Python)      │
-│                 │    │                 │    │                 │
-│ • Device Mgmt   │    │ • Orchestration │    │ • LLM Inference │
-│ • Model Deploy  │    │ • Load Balance  │    │ • Health Metrics│
-│ • Chat UI       │    │ • Health Monitor│    │ • Model Loading │
-│ • Real-time     │    │ • WebSocket Hub │    │ • Auto Register │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+<p align="center">
+  <img src="docs/images/dashboard.jpg" alt="Dashboard with two online devices" width="49%">
+  <img src="docs/images/models.jpg" alt="Model management with Llama 3.2 1B running on two devices" width="49%">
+</p>
 
-## Quick Start 
+## How it works
 
-### Running Options
+```mermaid
+flowchart LR
+    UI["Frontend<br/>React + Vite, or Electron"]
+    BE["Backend<br/>FastAPI"]
+    A1["Agent: MacBook Pro<br/>layers 0–7 + embeddings"]
+    A2["Agent: Mac mini<br/>layers 8–15 + LM head"]
+    OL["Ollama<br/>whole-model inference"]
 
-Orchard can be run in two ways:
-1. **Web Application** - Frontend, backend, and device agents run separately
-2. **Desktop Application (macOS)** - Electron app with bundled backend (see [ELECTRON_GUIDE.md](./ELECTRON_GUIDE.md))
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- npm or yarn
-- PyInstaller (for Electron desktop app builds)
-
-### 1. Install Dependencies
-
-**Backend:**
-```bash
-cd packages/backend
-pip install -r requirements.txt
+    UI <-- "REST + WebSocket" --> BE
+    BE -- "tokenize / forward / detokenize" --> A1
+    A1 -- "hidden states (float16)" --> A2
+    A2 -- "next token" --> BE
+    BE -- "deploy / inference" --> OL
 ```
 
-**Device Agent:**
-```bash
-cd packages/device-agent  
-pip install -r requirements.txt
-```
+For a sharded chat the backend drives the token loop: it asks the first device to tokenize the prompt, pushes the prompt through every shard in order, gets the next token back from the last shard, and repeats with just that token until the model emits end-of-sequence or hits the token limit. Sessions are released on every device when generation finishes.
 
-**Frontend:**
-```bash
-cd packages/frontend
-npm install
-```
+The full protocol, including what each `/llama/*` route accepts, is in [LLAMA_SHARDING_README.md](./LLAMA_SHARDING_README.md).
 
-### 2. Start the Backend
+## Quick start
+
+You need Python 3.10+, Node 18+, and [Ollama](https://ollama.com) on any device that will serve whole models.
+
+**1. Backend**
 
 ```bash
 cd packages/backend
-python main.py
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+ORCHARD_TOKEN=change-me .venv/bin/python main.py          # http://localhost:8000
 ```
 
-The backend will be available at `http://localhost:8000`
-
-### 3. Start Device Agents
-
-On each Apple device you want to use:
+**2. An agent on each device**
 
 ```bash
 cd packages/device-agent
-python agent.py --backend http://YOUR_BACKEND_IP:8000 --port 8001
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+ollama pull llama3.2:1b
+ORCHARD_TOKEN=change-me .venv/bin/python agent.py --backend-url http://<backend-ip>:8000 --name "MacBook Pro"
 ```
 
-**For multiple devices on the same machine (testing):**
-```bash
-# Terminal 1
-python agent.py --port 8001
+To take part in sharding, an agent also needs `torch` and `transformers` installed and `ORCHARD_USE_TORCH=1` set. Several agents can run on one machine on different ports for testing.
 
-# Terminal 2  
-python agent.py --port 8002
-
-# Terminal 3
-python agent.py --port 8003
-```
-
-### 4. Start the Frontend
+**3. Frontend**
 
 ```bash
 cd packages/frontend
-npm run dev
+npm install && npm run dev                                 # http://localhost:3000
 ```
 
-The web interface will be available at `http://localhost:3000`
-
-### Alternative: Desktop App (macOS)
-
-For a simpler setup, use the Electron desktop app:
+Or run the desktop app instead, which starts its own backend:
 
 ```bash
-cd packages/frontend
 npm run electron:dev
 ```
 
-The backend starts automatically with the app. See [ELECTRON_GUIDE.md](./ELECTRON_GUIDE.md) for more details.
+Open the UI, go to **Models**, and either **Deploy** Llama 3.2 1B to one device or **Shard** it across two or more. Then chat.
 
-### Configuration
+## Configuration
 
-All settings are environment variables with sensible defaults.
+Everything is an environment variable with a sensible default.
 
 | Variable | Used by | Purpose |
 |----------|---------|---------|
-| `ORCHARD_TOKEN` | backend, agent | Shared secret. When set, agents must send it to register/heartbeat and the backend must send it to call agents. Unset = no auth (local dev only). |
-| `ORCHARD_AGENT_IP` | agent | Advertise this IP instead of auto-detecting one. |
-| `ORCHARD_OLLAMA_MODEL` | agent | Ollama tag used for inference (default `llama3.2:1b`). |
-| `OLLAMA_HOST` | agent | Ollama API base URL (default `http://localhost:11434`). |
-| `ORCHARD_USE_TORCH` | agent | Set to `1` to enable layer-split sharding (needs torch + transformers). See [LLAMA_SHARDING_README.md](./LLAMA_SHARDING_README.md). |
-| `VITE_BACKEND_URL` | frontend (web) | Backend origin for the browser build and dev proxy (default `http://localhost:8000`). The Electron app sets this automatically. |
-| `ORCHARD_PYTHON` | Electron dev | Python interpreter used to spawn the backend in `electron:dev` (default: the backend `.venv`, then `python3`). |
-| `ORCHARD_TORCH_DEVICE` | agent | Force the torch device for shards (`cpu`, `mps`, `cuda`). Default: cuda, then mps, then cpu. |
-| `ORCHARD_HF_MODEL` | backend, agent | Hugging Face checkpoint used for sharding (default `meta-llama/Llama-3.2-1B`). |
+| `ORCHARD_TOKEN` | backend, agent | Shared secret. Agents must send it to register and heartbeat, and the backend sends it when calling agents. Unset disables auth, for local development only. |
+| `ORCHARD_AGENT_NAME` | agent | Display name for the device. Also `--name`. Defaults to the hostname. |
+| `ORCHARD_AGENT_IP` | agent | Advertise this IP instead of auto-detecting one. Also `--ip`. |
+| `ORCHARD_OLLAMA_MODEL` | agent | Ollama tag used when a model id has no mapping (default `llama3.2:1b`). |
 | `ORCHARD_OLLAMA_TAG_<MODEL_ID>` | agent | Override the Ollama tag for a catalog model, e.g. `ORCHARD_OLLAMA_TAG_MISTRAL_7B=mistral:7b-instruct`. |
+| `OLLAMA_HOST` | agent | Ollama API base URL (default `http://localhost:11434`). |
+| `ORCHARD_USE_TORCH` | agent | Set to `1` to enable layer-split sharding. Needs torch and transformers. |
+| `ORCHARD_TORCH_DEVICE` | agent | Force `cpu`, `mps` or `cuda` for shards. Default picks cuda, then mps, then cpu. |
+| `ORCHARD_HF_MODEL` | backend, agent | Hugging Face checkpoint used for sharding (default `meta-llama/Llama-3.2-1B`, a gated model). |
+| `ORCHARD_KV_MAX_SESSIONS`, `ORCHARD_KV_SESSION_TTL` | agent | Bounds on per-session KV caches (default 8 sessions, 300 s). |
+| `VITE_BACKEND_URL` | frontend | Backend origin for the browser build and dev proxy (default `http://localhost:8000`). The Electron app sets this itself. |
+| `ORCHARD_PYTHON` | Electron dev | Interpreter used to spawn the backend in `electron:dev`. Defaults to the backend `.venv`, then `python3`. |
 
-The device agent needs [Ollama](https://ollama.com) running locally with the model pulled (`ollama pull llama3.2:1b`).
-
-## Usage Guide 📖
-
-### 1. Dashboard
-- Overview of connected devices and system health
-- Real-time connection status
-- Memory and CPU usage statistics
-
-### 2. Device Management
-- View all connected Apple devices
-- Monitor device health metrics (CPU, memory, temperature)
-- See device status and network information
-
-### 3. Model Management
-- Browse available LLM models
-- Deploy models to compatible devices
-- Monitor deployment status
-- View which devices are running which models
-
-### 4. Chat Interface
-- Select from deployed models
-- Real-time chat with distributed LLMs
-- Adjust model parameters (temperature)
-- See which device processed each response
-
-## Available Models 🤖
-
-The system comes with sample models:
-
-- **Llama 2 7B**: Meta's 7B parameter model (Mac, iPad)
-- **Mistral 7B**: Mistral AI's 7B model (Mac, iPad)  
-- **Phi-3 Mini**: Microsoft's compact 3.8B model (Mac, iPad, iPhone)
-
-## Development 🛠️
-
-### Project Structure
+## Project layout
 
 ```
-Orchard/
-├── packages/
-│   ├── backend/           # FastAPI backend
-│   │   ├── main.py       # Main application
-│   │   └── requirements.txt
-│   ├── device-agent/     # Device agent
-│   │   ├── agent.py      # Agent implementation
-│   │   └── requirements.txt
-│   ├── frontend/         # React frontend
-│   │   ├── src/
-│   │   │   ├── pages/    # Main pages
-│   │   │   ├── components/# UI components
-│   │   │   └── hooks/    # React hooks
-│   │   └── package.json
-│   └── shared/           # Shared types/models
-│       └── types.py
-└── README.md
+packages/
+├── backend/            FastAPI control plane: device registry, model catalog, chat, sharding orchestration
+│   ├── main.py
+│   ├── llama_sharding.py     layer assignment and the sharded generation loop
+│   └── build.py              PyInstaller bundle for the desktop app
+├── device-agent/       Runs on each device: Ollama inference, torch layer shards, heartbeats
+│   ├── agent.py
+│   ├── ollama_inference.py
+│   └── llama_sharded_inference.py
+├── frontend/           React UI (Vite) and the Electron shell
+│   ├── src/
+│   └── electron/
+└── shared/             Pydantic types shared by backend and agents
 ```
 
-### API Endpoints
+## API
 
-**Devices:**
-- `GET /api/devices` - List all devices
-- `POST /api/devices/register` - Register new device
-- `POST /api/devices/{id}/heartbeat` - Device heartbeat
+Backend, all under `/api` except health and the socket:
 
-**Models:**
-- `GET /api/models` - List available models
-- `POST /api/models/deploy` - Deploy model to devices
+| Route | Purpose |
+|-------|---------|
+| `GET /health` | Liveness, identifies itself as `orchard-backend` |
+| `GET /api/devices`, `DELETE /api/devices/{id}` | List and remove devices |
+| `POST /api/devices/register`, `POST /api/devices/{id}/heartbeat` | Used by agents. Require the token. |
+| `GET /api/models`, `POST /api/models/deploy` | Catalog and single-device deployment |
+| `POST /api/models/deploy-llama-sharded`, `.../deploy-llama-sharded-auto` | Shard across chosen or all online devices |
+| `GET /api/models/sharded-configs` | Active sharding layouts |
+| `POST /api/chat`, `POST /api/chat/llama-sharded`, `GET /api/chat/history` | Chat |
+| `WS /ws` | `new_message`, `device_update`, `device_removed` events |
 
-**Chat:**
-- `POST /api/chat` - Send chat message
-- `GET /api/chat/history` - Get chat history
+Agent routes are `/health`, `/metrics`, `/deploy`, `/inference`, and the `/llama/*` sharding routes described in the sharding guide.
 
-**WebSocket:**
-- `WS /ws` - Real-time updates
+## Development
 
-### Extending the System
+```bash
+# frontend
+cd packages/frontend
+npm run typecheck && npm run lint && npm run build
 
-**Adding New Models:**
-1. Update the `initialize_models()` function in `backend/main.py`
-2. Implement model loading in `device-agent/agent.py`
+# desktop app: bundles the backend, typechecks, builds, and packages for this Mac's architecture
+npm run electron:build                 # output in packages/frontend/release/
 
-**Adding New Device Types:**
-1. Update `DeviceType` enum in `shared/types.py`
-2. Add device detection logic in device agent
+# whole stack for local testing
+./scripts/start-dev.sh && ./scripts/stop-dev.sh
+```
 
-## Production Deployment 🌐
+The Electron guide covers packaging details and the code-signing constraints that shaped the build: [ELECTRON_GUIDE.md](./ELECTRON_GUIDE.md).
 
-For production use:
+## Troubleshooting
 
-1. **Replace In-Memory Storage**: Use Redis for caching and PostgreSQL for persistence
-2. **Add Authentication**: Implement JWT-based auth for the API
-3. **Use HTTPS**: Configure SSL certificates
-4. **Load Balancer**: Use nginx or similar for frontend
-5. **Container Deployment**: Create Docker containers for each service
-6. **Model Loading**: Replace mock inference with actual LLM libraries (transformers, llama.cpp, etc.)
+- **Port 8000 is taken.** The backend accepts `--port`. The desktop app probes for a free port itself and verifies the server it finds is actually Orchard before opening the window. For the browser UI, set `VITE_BACKEND_URL` to match.
+- **Deploy says a model is not available in Ollama.** The agent checks the tag exists before reporting ready. Run the `ollama pull` command shown in the error on that device.
+- **Shard deploy returns 400 about torch.** That agent was started without `ORCHARD_USE_TORCH=1`, or torch and transformers are not installed in its environment.
+- **A device shows offline but the agent is running.** Check the token matches on both sides. Heartbeats without a valid token are rejected. Agents re-register automatically when the backend comes back.
+- **Sharded replies are slow or wander.** The default checkpoint is a small base model, not an instruct model. It completes text rather than answering questions. Point `ORCHARD_HF_MODEL` at an instruct variant you have access to.
 
-## Contributing 🤝
+## Status
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+Verified end to end on macOS: single-device chat through Ollama, layer-split inference across two agents on MPS and on CPU, the web UI, and the packaged desktop app. Only the `layer_split` strategy is implemented. Tensor and pipeline parallelism are rejected rather than simulated.
 
-## License 📄
+Next up: selective weight loading so a device never holds the whole checkpoint, concurrent sessions per shard, an instruct model as the default, and agents for iPhone and iPad.
 
-MIT License - see LICENSE file for details
+## License
 
-## Troubleshooting 🔧
-
-**Common Issues:**
-
-1. **Device not connecting**: Check network connectivity and firewall settings
-2. **Model deployment failed**: Ensure device has sufficient memory
-3. **Chat not working**: Verify at least one model is deployed and device is online
-4. **WebSocket disconnected**: Check if backend is running and accessible
-
-**Debug Mode:**
-Add `--log-level debug` to any Python service for verbose logging.
-
-## Roadmap 🗺️
-
-- [ ] Support for more LLM frameworks (llama.cpp, ONNX, etc.)
-- [ ] Advanced load balancing strategies  
-- [ ] Model caching and compression
-- [ ] Device clustering and failover
-- [ ] Performance analytics dashboard
-- [ ] Mobile apps for device agents (iOS/iPadOS)
-- [ ] Integration with cloud services
-
----
-
-Built with ❤️ for the Apple ecosystem 
+MIT.

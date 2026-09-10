@@ -54,9 +54,18 @@ npm run electron:prebuild
 ```
 
 This will:
-- Use PyInstaller to bundle the Python backend
-- Create a standalone executable at `packages/frontend/resources/backend/orchard-backend`
+- Use PyInstaller from the backend's `.venv` to bundle the Python backend
+- Create a directory bundle at `packages/frontend/resources/backend/orchard-backend/` (the executable is `orchard-backend` inside it, next to `_internal/`)
 - Include all necessary dependencies
+
+### Why a directory bundle, and why one architecture
+
+Two constraints shaped the packaging. Both were found by launching the packaged app and reading the backend's stderr.
+
+- **Code signing.** electron-builder signs the app with your Apple identity. PyInstaller's one-file mode unpacks a Python framework at runtime that still carries python.org's signature, and macOS refuses to load a library whose Team ID differs from the process. The build therefore uses PyInstaller's directory mode, so every binary is inside the app bundle and gets signed consistently.
+- **Architecture.** The backend binary is built for the machine running the build. `npm run electron:build` therefore packages only the host architecture. Build on an Apple Silicon Mac for an arm64 DMG, or on an Intel Mac for x64.
+
+The app also checks it is talking to its own backend: the readiness probe requires `/health` to return `"service": "orchard-backend"`, so another server on the same port is never mistaken for Orchard.
 
 ### Step 3: Build the Electron App
 

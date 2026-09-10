@@ -12,18 +12,17 @@ has to hold the whole model. This document describes exactly what is implemented
 - The backend runs the token loop. For every generated token the prompt-so-far goes to the
   first shard, hidden states flow shard to shard as base64 float16 tensors over HTTP, and the
   last shard returns the next token. Greedy decoding when `temperature` is 0, sampling otherwise.
+- Each shard keeps a KV cache per generation session, so after the prompt is prefilled every
+  step only processes the newest token. Sessions are released when generation ends and are
+  bounded by `ORCHARD_KV_MAX_SESSIONS` (default 8) and `ORCHARD_KV_SESSION_TTL` (default
+  300 s) on each agent.
 - Output is verified identical to running the unsharded model with `generate()`.
 
 ## What it does not do
 
 - Only one generation runs at a time per shard; concurrent chats queue.
-
 - Only `layer_split` is implemented. `tensor_parallel` and `pipeline_parallel` are rejected
   with HTTP 400.
-- Each shard keeps a KV cache per generation session, so after the prompt is prefilled every
-  step only processes the newest token. Sessions are released when generation ends and are
-  bounded by `ORCHARD_KV_MAX_SESSIONS` (default 8) and `ORCHARD_KV_SESSION_TTL` (default
-  300 s) on each agent.
 - Only `llama-3.2-1b` has a sharding architecture entry (`LLAMA_ARCHITECTURES` in
   `packages/backend/llama_sharding.py`). Add an entry to shard another Llama-family model.
 

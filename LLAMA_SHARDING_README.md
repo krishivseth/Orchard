@@ -16,10 +16,14 @@ has to hold the whole model. This document describes exactly what is implemented
 
 ## What it does not do
 
+- Only one generation runs at a time per shard; concurrent chats queue.
+
 - Only `layer_split` is implemented. `tensor_parallel` and `pipeline_parallel` are rejected
   with HTTP 400.
-- No KV cache: every token recomputes the full sequence. Fine for short answers on a 1B
-  model, slow for long ones.
+- Each shard keeps a KV cache per generation session, so after the prompt is prefilled every
+  step only processes the newest token. Sessions are released when generation ends and are
+  bounded by `ORCHARD_KV_MAX_SESSIONS` (default 8) and `ORCHARD_KV_SESSION_TTL` (default
+  300 s) on each agent.
 - Only `llama-3.2-1b` has a sharding architecture entry (`LLAMA_ARCHITECTURES` in
   `packages/backend/llama_sharding.py`). Add an entry to shard another Llama-family model.
 
@@ -65,7 +69,8 @@ All routes require `X-Orchard-Token` when `ORCHARD_TOKEN` is set.
 | `POST /llama/shard/unload` | `{"shard_id"}` | `{"status":"unloaded"}` |
 | `POST /llama/tokenize` | `{"text"}` | `{"input_ids":[...]}` |
 | `POST /llama/detokenize` | `{"input_ids":[...]}` | `{"text"}` |
-| `POST /llama/forward` | first shard: `{"input_ids":[...]}`; others: `{"hidden","shape","dtype"}`; always `temperature` | non-last: `{"hidden","shape","dtype"}`; last: `{"next_token","eos"}` |
+| `POST /llama/forward` | first shard: `{"input_ids":[new tokens]}`; others: `{"hidden","shape","dtype"}` for the new positions; always `temperature`, `session_id`, `reset` (true on the prefill step) | non-last: `{"hidden","shape","dtype","past_length"}`; last: `{"next_token","eos","past_length"}` |
+| `POST /llama/session/end` | `{"session_id"}` | `{"status":"ended"|"unknown"}` |
 
 ## Failure behaviour
 

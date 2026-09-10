@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -197,12 +198,22 @@ class LlamaShardingEngine:
 
         generated: List[int] = []
         max_tokens = max(0, int(request.max_tokens))
-        for step in range(max_tokens):
-            next_token, eos = await self._forward_pipeline(shards, input_ids + generated, request.temperature)
-            generated.append(next_token)
-            if eos:
-                logger.debug(f"EOS reached after {step + 1} tokens for {config.model_id}")
-                break
+        session_id = uuid.uuid4().hex
+        try:
+            # Step 0 prefills the whole prompt; later steps send only the newest token and
+            # rely on each shard's per-session KV cache.
+            new_tokens = input_ids
+            for step in range(max_tokens):
+                next_token, eos = await self._forward_pipeline(
+                    shards, new_tokens, request.temperature, session_id=session_id, reset=(step == 0)
+                )
+                generated.append(next_token)
+                new_tokens = [next_token]
+                if eos:
+                    logger.debug(f"EOS reached after {step + 1} tokens for {config.model_id}")
+                    break
+        finally:
+            await self._end_sessions(shards, session_id)
 
         if not generated:
             return ""
@@ -217,15 +228,44 @@ class LlamaShardingEngine:
             )
         return text
 
+    async def _end_sessions(self, shards: List[ModelShard], session_id: str) -> None:
+        """Best-effort release of the per-session KV caches on every shard."""
+        for shard in shards:
+            address = self.device_connections.get(shard.device_id)
+            if not address or self.http_client is None:
+                continue
+            try:
+                await self.http_client.post(
+                    f"http://{address}/llama/session/end",
+                    json={"session_id": session_id},
+                    headers=self.auth_headers,
+                    timeout=5.0,
+                )
+            except Exception as e:  # noqa: BLE001 - cleanup must never mask the real result
+                logger.debug(f"Could not end session {session_id} on {shard.device_id}: {e!r}")
+
     async def _forward_pipeline(
-        self, shards: List[ModelShard], input_ids: List[int], temperature: float
+        self,
+        shards: List[ModelShard],
+        input_ids: List[int],
+        temperature: float,
+        session_id: str,
+        reset: bool,
     ) -> Tuple[int, bool]:
-        """One generation step: chain hidden states through every shard, return (next_token, eos)."""
+        """One generation step: chain hidden states through every shard, return (next_token, eos).
+
+        input_ids are only the NEW tokens for this step; shards keep a KV cache per session_id.
+        """
         last = shards[-1]
         hidden: Optional[Dict[str, Any]] = None
         for shard in shards:
             address = self._device_address(shard)
-            payload: Dict[str, Any] = {"shard_id": shard.shard_id, "temperature": temperature}
+            payload: Dict[str, Any] = {
+                "shard_id": shard.shard_id,
+                "temperature": temperature,
+                "session_id": session_id,
+                "reset": reset,
+            }
             if hidden is None:
                 payload["input_ids"] = input_ids
             else:

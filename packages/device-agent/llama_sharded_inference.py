@@ -4,7 +4,8 @@ Real layer-split pipeline shard for Llama-family models.
 Each device holds a contiguous slice of decoder layers. The first shard also owns the
 token embeddings; the last shard owns the final norm and the LM head. Hidden states are
 passed between devices as base64-encoded float16 tensors. The backend drives the
-per-token generation loop.
+per-token generation loop and identifies each generation with a session_id; every shard
+keeps a KV cache per session so each step only processes the newest token.
 
 torch / transformers are optional (ORCHARD_USE_TORCH=1) and imported lazily so the agent
 can start without them.
@@ -12,6 +13,8 @@ can start without them.
 import asyncio
 import base64
 import gc
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
@@ -27,6 +30,16 @@ def _import_torch():
 def _import_transformers():
     from transformers import AutoModelForCausalLM, AutoTokenizer
     return AutoTokenizer, AutoModelForCausalLM
+
+
+def _new_cache():
+    from transformers import DynamicCache
+    return DynamicCache()
+
+
+# Per-session KV caches: bounded in count and age so abandoned generations don't pin memory.
+MAX_SESSIONS = int(os.environ.get("ORCHARD_KV_MAX_SESSIONS", "8"))
+SESSION_TTL_SECONDS = float(os.environ.get("ORCHARD_KV_SESSION_TTL", "300"))
 
 
 class ShardNotLoadedError(RuntimeError):
@@ -49,6 +62,7 @@ class LlamaShardedLoader:
         self._device = None
         self._dtype = None
         self._lock = asyncio.Lock()  # one forward at a time per shard
+        self._sessions: Dict[str, Dict[str, Any]] = {}  # session_id -> {"cache", "last_used"}
 
     # ------------------------------------------------------------------ device selection
 
@@ -137,6 +151,9 @@ class LlamaShardedLoader:
             )
 
         keep = list(model.model.layers[shard.layer_start : shard.layer_end + 1])
+        # DynamicCache indexes by the attention module's layer_idx; make it local to this shard.
+        for local_idx, layer in enumerate(keep):
+            layer.self_attn.layer_idx = local_idx
         self.layers = torch.nn.ModuleList(keep).to(self.device)
         self.rotary_emb = model.model.rotary_emb.to(self.device)
         self.embed_tokens = model.model.embed_tokens.to(self.device) if shard.layer_start == 0 else None
@@ -166,6 +183,7 @@ class LlamaShardedLoader:
         if shard_id is not None and shard_id != self.shard.shard_id:
             return
         logger.info(f"Unloading shard {self.shard.shard_id}")
+        self._sessions.clear()
         self.shard = None
         self.layers = self.embed_tokens = self.norm = self.lm_head = self.rotary_emb = None
         self.tokenizer = None
@@ -202,21 +220,47 @@ class LlamaShardedLoader:
         shape: Optional[List[int]] = None,
         dtype: str = "float16",
         temperature: float = 0.0,
+        session_id: Optional[str] = None,
+        reset: bool = False,
     ) -> Dict[str, Any]:
-        """Run this shard's layers.
+        """Run this shard's layers over the NEW positions only.
 
-        First shard: expects input_ids. Others: expect hidden/shape/dtype.
+        First shard: expects input_ids (the new tokens). Others: expect hidden/shape/dtype for
+        the new positions. A session_id selects the KV cache; reset=True starts it fresh.
+        Without a session_id the call is stateless (full sequence each time).
         Returns {"hidden","shape","dtype"} unless this is the last shard, which returns
-        {"next_token","eos"}.
+        {"next_token","eos"}; both include "past_length".
         """
         self._require_loaded()
         async with self._lock:
             return await asyncio.to_thread(
-                self._forward_sync, input_ids, hidden_b64, shape, dtype, float(temperature)
+                self._forward_sync, input_ids, hidden_b64, shape, dtype, float(temperature),
+                session_id, reset,
             )
 
-    def _forward_sync(self, input_ids, hidden_b64, shape, dtype, temperature) -> Dict[str, Any]:
+    async def end_session(self, session_id: Optional[str]) -> bool:
+        async with self._lock:
+            return self._sessions.pop(session_id, None) is not None
+
+    def _get_cache(self, session_id: Optional[str], reset: bool):
+        if session_id is None:
+            return _new_cache()
+        now = time.time()
+        # Evict stale sessions, then the oldest if we're over the cap.
+        for sid in [sid for sid, sess in self._sessions.items() if now - sess["last_used"] > SESSION_TTL_SECONDS]:
+            self._sessions.pop(sid, None)
+        if reset or session_id not in self._sessions:
+            while len(self._sessions) >= MAX_SESSIONS:
+                oldest = min(self._sessions, key=lambda k: self._sessions[k]["last_used"])
+                self._sessions.pop(oldest, None)
+            self._sessions[session_id] = {"cache": _new_cache(), "last_used": now}
+        sess = self._sessions[session_id]
+        sess["last_used"] = now
+        return sess["cache"]
+
+    def _forward_sync(self, input_ids, hidden_b64, shape, dtype, temperature, session_id, reset) -> Dict[str, Any]:
         torch = _import_torch()
+        cache = self._get_cache(session_id, reset)
         with torch.no_grad():
             if self.is_first:
                 if not input_ids:
@@ -228,20 +272,28 @@ class LlamaShardedLoader:
                     raise ValueError("Non-first shard requires hidden and shape")
                 h = _decode_tensor(hidden_b64, shape, dtype).to(self.device, self.dtype)
 
-            seq_len = h.shape[1]
-            position_ids = torch.arange(seq_len, device=self.device).unsqueeze(0)
+            past_len = cache.get_seq_length()
+            new_len = h.shape[1]
+            position_ids = torch.arange(past_len, past_len + new_len, device=self.device).unsqueeze(0)
             cos, sin = self.rotary_emb(h, position_ids)
             for layer in self.layers:
                 out = layer(
                     h,
-                    attention_mask=None,  # sdpa applies a causal mask when mask is None
+                    # sdpa: causal mask for multi-token prefill, full attention over the
+                    # cache for a single new token. Both are what we want.
+                    attention_mask=None,
                     position_ids=position_ids,
+                    past_key_value=cache,
+                    use_cache=True,
+                    cache_position=position_ids[0],
                     position_embeddings=(cos, sin),
                 )
                 h = out[0] if isinstance(out, tuple) else out
 
             if not self.is_last:
-                return _encode_tensor(h)
+                result = _encode_tensor(h)
+                result["past_length"] = past_len + new_len
+                return result
 
             logits = self.lm_head(self.norm(h[:, -1, :])).float()
             if temperature and temperature > 0:
@@ -249,10 +301,18 @@ class LlamaShardedLoader:
                 next_token = int(torch.multinomial(probs, num_samples=1).item())
             else:
                 next_token = int(torch.argmax(logits, dim=-1).item())
-            return {"next_token": next_token, "eos": next_token in self.eos_token_ids}
+            return {
+                "next_token": next_token,
+                "eos": next_token in self.eos_token_ids,
+                "past_length": past_len + new_len,
+            }
 
     def get_model_info(self) -> Dict[str, Any]:
-        return {"loaded_shards": self.loaded_shards, "device": str(self.device) if self.shard else None}
+        return {
+            "loaded_shards": self.loaded_shards,
+            "device": str(self.device) if self.shard else None,
+            "active_sessions": len(self._sessions),
+        }
 
 
 # ---------------------------------------------------------------------- wire format

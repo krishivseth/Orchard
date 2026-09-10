@@ -344,6 +344,12 @@ class DeviceAgent:
             self.device_info.current_model = None
             return {"status": "unloaded"}
 
+        @self.app.post("/llama/session/end", dependencies=protected)
+        async def llama_session_end(request: dict):
+            loader = _require_torch()
+            released = await loader.end_session(request.get("session_id"))
+            return {"status": "ended" if released else "unknown"}
+
         @self.app.post("/llama/tokenize", dependencies=protected)
         async def llama_tokenize(request: dict):
             loader = _require_torch()
@@ -377,6 +383,8 @@ class DeviceAgent:
                     shape=request.get("shape"),
                     dtype=request.get("dtype", "float16"),
                     temperature=request.get("temperature", 0.0) or 0.0,
+                    session_id=request.get("session_id"),
+                    reset=bool(request.get("reset", False)),
                 )
             except ShardNotLoadedError as e:
                 raise HTTPException(status_code=409, detail=str(e))

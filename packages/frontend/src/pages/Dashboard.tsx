@@ -1,4 +1,3 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { deviceApi, modelApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -135,7 +134,7 @@ export function Dashboard() {
                     </p>
                     <p className="text-xs text-gray-500">
                       CPU: {device.cpu_usage_percent.toFixed(1)}%
-                      {device.temperature_celsius && ` • ${device.temperature_celsius}°C`}
+                      {device.temperature_celsius != null && ` • ${device.temperature_celsius}°C`}
                     </p>
                   </div>
                 </div>

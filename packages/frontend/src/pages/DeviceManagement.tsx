@@ -1,4 +1,3 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -6,7 +5,9 @@ import { Monitor, Cpu, Thermometer, Activity, WifiOff } from 'lucide-react';
 import { DeviceInfo } from '../types';
 
 function DeviceCard({ device }: { device: DeviceInfo }) {
-  const memoryUsage = ((device.total_memory_gb - device.available_memory_gb) / device.total_memory_gb) * 100;
+  const memoryUsage = device.total_memory_gb > 0
+    ? ((device.total_memory_gb - device.available_memory_gb) / device.total_memory_gb) * 100
+    : 0;
   
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -75,7 +76,7 @@ function DeviceCard({ device }: { device: DeviceInfo }) {
         </div>
 
         {/* Temperature */}
-        {device.temperature_celsius && (
+        {device.temperature_celsius != null && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600 flex items-center">
               <Thermometer className="h-4 w-4 mr-1" />
@@ -112,7 +113,7 @@ function DeviceCard({ device }: { device: DeviceInfo }) {
 }
 
 export function DeviceManagement() {
-  const { devices: wsDevices, isConnected } = useWebSocket();
+  const { devices: wsDevices } = useWebSocket();
   const { data: devices = [], refetch } = useQuery({
     queryKey: ['devices'],
     queryFn: deviceApi.getDevices,

@@ -11,8 +11,12 @@ import {
   ShardedInferenceResponse
 } from './types';
 
+// Backend origin: provided synchronously by the Electron preload, otherwise localhost
+export const backendBaseUrl: string =
+  (typeof window !== 'undefined' && window.electronAPI?.backendUrl) || 'http://localhost:8000';
+
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: `${backendBaseUrl}/api`,
   timeout: 30000,
 });
 

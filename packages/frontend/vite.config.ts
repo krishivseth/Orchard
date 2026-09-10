@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// Note: This config is only used when running the web version separately.
+// Electron builds use electron.vite.config.ts
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -22,4 +24,8 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  }
 }) 

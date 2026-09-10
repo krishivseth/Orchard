@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelApi, deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { Brain, Download, Play, CheckCircle, XCircle, Loader } from 'lucide-react';
-import { LLMModel, DeviceInfo, ShardingStrategy } from '../types';
+import { Brain, Play, Loader } from 'lucide-react';
+import { LLMModel, DeviceInfo } from '../types';
+
+// Models the backend can shard (mirrors LLAMA_ARCHITECTURES in backend/llama_sharding.py).
+// Only real layer-split sharding is implemented; agents must run with ORCHARD_USE_TORCH=1.
+const SHARDABLE_MODELS = ['llama-3.2-1b'];
 
 function ModelCard({ 
   model, 
@@ -14,12 +18,11 @@ function ModelCard({
   model: LLMModel; 
   devices: DeviceInfo[];
   onDeploy: (modelId: string, deviceIds: string[]) => void;
-  onDeploySharded: (modelId: string, deviceIds: string[], strategy: ShardingStrategy) => void;
+  onDeploySharded: (modelId: string, deviceIds: string[]) => void;
 }) {
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [showDeployment, setShowDeployment] = useState(false);
   const [showShardedDeployment, setShowShardedDeployment] = useState(false);
-  const [shardingStrategy, setShardingStrategy] = useState<ShardingStrategy>('layer_split');
 
   const compatibleDevices = devices.filter(device => 
     model.supported_devices.includes(device.type) && 
@@ -39,7 +42,7 @@ function ModelCard({
 
   const handleShardedDeploy = () => {
     if (selectedDevices.length > 1) {  // Need at least 2 devices for sharding
-      onDeploySharded(model.id, selectedDevices, shardingStrategy);
+      onDeploySharded(model.id, selectedDevices);
       setSelectedDevices([]);
       setShowShardedDeployment(false);
     }
@@ -84,7 +87,7 @@ function ModelCard({
                   Deploy
                 </button>
               )}
-              {compatibleDevices.length > 1 && model.id === 'llama-3.2-1b' && (
+              {compatibleDevices.length > 1 && SHARDABLE_MODELS.includes(model.id) && (
                 <button
                   onClick={() => setShowShardedDeployment(!showShardedDeployment)}
                   className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700"
@@ -143,20 +146,9 @@ function ModelCard({
           <div className="mt-4 p-4 bg-purple-50 rounded-lg">
             <h4 className="font-medium text-purple-900 mb-2">Sharded Deployment</h4>
             
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-purple-900 mb-1">
-                Sharding Strategy
-              </label>
-              <select
-                value={shardingStrategy}
-                onChange={(e) => setShardingStrategy(e.target.value as ShardingStrategy)}
-                className="w-full px-3 py-2 border border-purple-300 rounded-md bg-white"
-              >
-                <option value="layer_split">Layer Split</option>
-                <option value="tensor_parallel">Tensor Parallel</option>
-                <option value="pipeline_parallel">Pipeline Parallel</option>
-              </select>
-            </div>
+            <p className="mb-3 text-xs text-purple-800">
+              Layer-split across {selectedDevices.length > 1 ? selectedDevices.length : 'N'} devices (agents must run with ORCHARD_USE_TORCH=1)
+            </p>
             
             <div className="space-y-2 mb-3">
               {compatibleDevices.map(device => (
@@ -238,11 +230,12 @@ export function ModelManagement() {
     deployMutation.mutate({ model_id: modelId, device_ids: deviceIds });
   };
 
-  const handleDeploySharded = (modelId: string, deviceIds: string[], strategy: ShardingStrategy) => {
-    deployShardedMutation.mutate({ 
-      model_id: modelId, 
-      device_ids: deviceIds, 
-      strategy: strategy 
+  const handleDeploySharded = (modelId: string, deviceIds: string[]) => {
+    // Only layer_split is implemented by the backend; other strategies are rejected with 400.
+    deployShardedMutation.mutate({
+      model_id: modelId,
+      device_ids: deviceIds,
+      strategy: 'layer_split',
     });
   };
 

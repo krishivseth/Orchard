@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   Monitor, 
@@ -50,12 +50,15 @@ export function Layout({ children }: LayoutProps) {
         
         <nav className="flex flex-1 flex-col px-4 py-4">
           <ul role="list" className="space-y-1">
-            {navigation.map((item) => (
+            {navigation.map((item) => {
+              const isActive = location.pathname === item.href;
+              return (
               <li key={item.name}>
                 <Link
                   to={item.href}
+                  aria-current={isActive ? 'page' : undefined}
                   className={clsx(
-                    location.pathname === item.href
+                    isActive
                       ? 'bg-primary-50 text-primary-700'
                       : 'text-gray-700 hover:bg-gray-50',
                     'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold'
@@ -63,7 +66,7 @@ export function Layout({ children }: LayoutProps) {
                 >
                   <item.icon
                     className={clsx(
-                      location.pathname === item.href
+                      isActive
                         ? 'text-primary-700'
                         : 'text-gray-400 group-hover:text-gray-600',
                       'h-6 w-6 shrink-0'
@@ -72,7 +75,8 @@ export function Layout({ children }: LayoutProps) {
                   {item.name}
                 </Link>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </nav>
       </div>

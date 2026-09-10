@@ -31,6 +31,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   timestamp: string;
   device_id?: string;
+  /** All devices that contributed to the response (sharded responses list every device). */
+  device_ids?: string[];
 }
 
 export interface InferenceRequest {
@@ -69,6 +71,10 @@ export interface ModelDeploymentStatus {
   error_message?: string;
 }
 
+/**
+ * Sharding strategies known to the API. Only 'layer_split' is implemented by the
+ * backend; 'tensor_parallel' and 'pipeline_parallel' are rejected with HTTP 400.
+ */
 export type ShardingStrategy = 'layer_split' | 'tensor_parallel' | 'pipeline_parallel';
 
 export interface ModelShard {
@@ -105,3 +111,20 @@ export interface ModelShardingConfig {
   devices_used: string[];
   model_name: string;
 } 
+export interface NewMessageEvent {
+  type: 'new_message';
+  message?: ChatMessage;
+  [key: string]: unknown;
+}
+
+export interface DeviceUpdateEvent {
+  type: 'device_update';
+  device: DeviceInfo;
+}
+
+export interface DeviceRemovedEvent {
+  type: 'device_removed';
+  device_id: string;
+}
+
+export type WebSocketEvent = NewMessageEvent | DeviceUpdateEvent | DeviceRemovedEvent;

@@ -1,9 +1,69 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, modelApi, deviceApi } from '../api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { Send, Bot, User, Cpu, Clock } from 'lucide-react';
 import { ChatMessage, InferenceRequest, DistributedInferenceRequest, InferenceResponse, ShardedInferenceResponse } from '../types';
+
+// Simple markdown parser for basic formatting
+function parseMarkdown(text: string): React.ReactNode {
+  if (!text) return text;
+  
+  // Split by code blocks first (backticks)
+  const parts = text.split(/(`[^`]*`)/);
+  
+  return parts.map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      // Code block
+      const code = part.slice(1, -1);
+      return (
+        <code key={index} className="bg-gray-200 px-1 py-0.5 rounded text-sm font-mono">
+          {code}
+        </code>
+      );
+    }
+    
+    // Handle bold and italic within text parts
+    let result = part;
+    const elements: React.ReactNode[] = [];
+    let key = 0;
+    
+    // Bold: **text**
+    result = result.replace(/\*\*([^*]+)\*\*/g, (_match, content) => {
+      elements.push(
+        <strong key={key++} className="font-bold">
+          {content}
+        </strong>
+      );
+      return `__BOLD_${key - 1}__`;
+    });
+    
+    // Italic: *text*
+    result = result.replace(/\*([^*]+)\*/g, (_match, content) => {
+      elements.push(
+        <em key={key++} className="italic">
+          {content}
+        </em>
+      );
+      return `__ITALIC_${key - 1}__`;
+    });
+    
+    // Split by placeholders and replace with elements
+    const textParts = result.split(/(__BOLD_\d+__|__ITALIC_\d+__)/);
+    
+    return textParts.map((textPart) => {
+      if (textPart.startsWith('__BOLD_')) {
+        const elementIndex = parseInt(textPart.match(/\d+/)![0]);
+        return elements[elementIndex];
+      } else if (textPart.startsWith('__ITALIC_')) {
+        const elementIndex = parseInt(textPart.match(/\d+/)![0]);
+        return elements[elementIndex];
+      } else {
+        return textPart;
+      }
+    });
+  });
+}
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
@@ -28,12 +88,16 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             ? 'bg-primary-600 text-white' 
             : 'bg-gray-100 text-gray-900'
         }`}>
-          <p className="text-sm">{message.content}</p>
+          <div className="text-sm whitespace-pre-wrap">
+            {parseMarkdown(message.content)}
+          </div>
           <div className={`mt-1 text-xs ${isUser ? 'text-primary-100' : 'text-gray-500'}`}>
             {new Date(message.timestamp).toLocaleTimeString()}
-            {!isUser && message.device_id && (
-              <span className="ml-2">• {message.device_id.slice(0, 8)}</span>
-            )}
+            {!isUser && message.device_ids && message.device_ids.length > 0 ? (
+              <span className="ml-2">• {message.device_ids.join(', ')}</span>
+            ) : !isUser && message.device_id ? (
+              <span className="ml-2">• {message.device_id}</span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -46,7 +110,7 @@ export function Chat() {
   const [messageInput, setMessageInput] = useState('');
   const [temperature, setTemperature] = useState(0.7);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { devices: wsDevices } = useWebSocket();
+  const { devices: wsDevices, isConnected } = useWebSocket();
   const queryClient = useQueryClient();
 
   const { data: models = [] } = useQuery({
@@ -63,7 +127,8 @@ export function Chat() {
   const { data: chatHistory = [] } = useQuery({
     queryKey: ['chat-history'],
     queryFn: chatApi.getChatHistory,
-    refetchInterval: 2000,
+    // WebSocket 'new_message' events invalidate this query; poll only as a fallback when disconnected
+    refetchInterval: isConnected ? false : 5000,
   });
 
   const { data: shardedConfigs = { configs: {} } } = useQuery({
@@ -102,14 +167,22 @@ export function Chat() {
   const displayDevices = wsDevices.length > 0 ? wsDevices : devices;
 
   // Get available models (models that are deployed to at least one online device)
-  const availableModels = models.filter(model => 
-    displayDevices.some(device => 
-      device.current_model === model.id && device.status === 'online'
-    )
+  const availableModels = useMemo(
+    () =>
+      models.filter(model =>
+        displayDevices.some(device =>
+          device.current_model === model.id && device.status === 'online'
+        )
+      ),
+    [models, displayDevices]
   );
 
-  // Auto-select first available model
+  // Auto-select first available model, and reset if the selection is no longer available
   useEffect(() => {
+    if (selectedModel && !availableModels.some(m => m.id === selectedModel)) {
+      setSelectedModel('');
+      return;
+    }
     if (!selectedModel && availableModels.length > 0) {
       setSelectedModel(availableModels[0].id);
     }
@@ -135,7 +208,8 @@ export function Chat() {
         model_id: selectedModel,
         temperature,
         max_tokens: 150,
-        sharding_strategy: 'layer_split'
+        // Only layer_split is implemented by the backend.
+        sharding_strategy: 'layer_split',
       };
       sendMessageMutation.mutate(request);
     } else {
@@ -148,7 +222,7 @@ export function Chat() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -156,6 +230,8 @@ export function Chat() {
   };
 
   const devicesForModel = displayDevices.filter(d => d.current_model === selectedModel && d.status === 'online');
+  // Devices hosting the shards of the selected model (only layer_split is implemented).
+  const shardedDeviceIds: string[] = shardedConfigs.configs[selectedModel]?.devices_used ?? [];
 
   return (
     <div className="flex h-[calc(100vh-8rem)] space-x-6">
@@ -170,7 +246,7 @@ export function Chat() {
                 Using {models.find(m => m.id === selectedModel)?.name}
                 {selectedModel in shardedConfigs.configs && (
                   <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
-                    Sharded
+                    Sharded (layer_split{shardedDeviceIds.length > 0 ? `: ${shardedDeviceIds.join(', ')}` : ''})
                   </span>
                 )}
               </p>
@@ -227,7 +303,7 @@ export function Chat() {
                   sendMessageMutation.reset();
                 }
               }}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               placeholder={
                 availableModels.length === 0 
                   ? 'Deploy a model first...'
@@ -246,6 +322,7 @@ export function Chat() {
                 sendMessageMutation.isPending
               }
               className="btn btn-primary"
+              aria-label="Send message"
             >
               {sendMessageMutation.isPending ? (
                 <Clock className="h-4 w-4 animate-spin" />
